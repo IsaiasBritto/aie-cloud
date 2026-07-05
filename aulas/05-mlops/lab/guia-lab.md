@@ -125,11 +125,10 @@ echo "RG:        $RESOURCE_GROUP"
 ### Passo 1 — Instalar dependências
 
 ```bash
-pip install --user mlflow azureml-mlflow azure-ai-ml azure-identity \
-                    sentence-transformers scikit-learn pandas
+pip install --user mlflow azureml-mlflow azure-ai-ml azure-identity scikit-learn pandas
 ```
 
-> Primeira execução baixa o modelo de embedding (~80 MB) para `~/.cache/huggingface` — cacheado entre sessões.
+> **Por que não `sentence-transformers` aqui?** O Cloud Shell tem 5 GB de disco — `sentence-transformers` puxa `torch` (~1.5 GB) e esgotaria o espaço. Esta atividade usa **TF-IDF** (já incluso no scikit-learn, zero install extra) para demonstrar o fluxo MLflow → Registry com pacotes leves. A Atividade 3 usa embeddings semânticos no Compute Cluster, onde não há essa restrição. Compare os valores de `precision_at_k_proxy` entre as duas abordagens — essa diferença é a motivação para o cluster.
 
 ### Passo 2 — Configurar variáveis e rodar
 
@@ -351,12 +350,11 @@ Uma 5ª tool da Function da Aula 3 — `/recomendar` — chamaria o Online Endpo
 | Problema | Causa | Solução |
 |----------|-------|---------|
 | `terraform apply` falha no Workspace | Quota de Storage Account na região | Mudar `location` para `eastus2` (`-var=location=eastus2`) |
-| `sentence-transformers` muito lento | Modelo (~80 MB) baixando | Aguardar; cache em `~/.cache/huggingface` |
 | Job em "Queued" eternamente | Compute Cluster falhou ao escalar | Verificar quota de vCPUs na subscription |
 | Job falhou com "Image not found" | `conda.yml` inválido | Conferir indentação do YAML |
 | `az ml model update --set tags` falha | CLI v2 antiga | `az extension update -n ml` |
 | Endpoint deployment falhou | Modelo precisa de scoring script | Modelo registrado via `mlflow.pyfunc.log_model` já vem com scoring built-in — se falhar, conferir versão do MLflow |
-| Endpoint retorna 500 | Faltam libs no environment | Adicionar `sentence-transformers` no `conda_file` do deployment |
+| Endpoint retorna 500 | Faltam libs no environment | Verificar que o `conda_file` do deployment inclui todas as dependências do `train.py` |
 | Custo > $5 no fim do dia | Endpoint esquecido | Sempre `az ml online-endpoint delete` antes do `terraform destroy` |
 
 ---

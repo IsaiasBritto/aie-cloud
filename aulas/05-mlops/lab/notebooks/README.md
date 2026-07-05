@@ -16,11 +16,10 @@ cp ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv ~/qc-aula05/produto
 ## Instalar dependências
 
 ```bash
-pip install --user mlflow azureml-mlflow azure-ai-ml azure-identity \
-                    sentence-transformers scikit-learn pandas
+pip install --user mlflow azureml-mlflow azure-ai-ml azure-identity scikit-learn pandas
 ```
 
-> Primeira execução baixa o modelo `all-MiniLM-L6-v2` (~80 MB) para `~/.cache/huggingface` — cache fica entre sessões do Cloud Shell.
+> **Por que não `sentence-transformers`?** O Cloud Shell tem 5 GB de disco — `sentence-transformers` puxa `torch` (~1.5 GB) e esgotaria o espaço. Esta atividade usa TF-IDF (já incluso no scikit-learn) para demonstrar o fluxo MLflow → Registry. A Atividade 3 usa embeddings semânticos no Compute Cluster — compare os `precision_at_k_proxy` das duas abordagens.
 
 ## Exportar variáveis
 
@@ -45,10 +44,11 @@ Saída esperada:
 Run ID: <uuid>
 → Carregando produtos de /home/.../produtos.csv...
 ✓ 20 produtos carregados
-→ Gerando embeddings com all-MiniLM-L6-v2...
-✓ Embeddings shape: (20, 384)
+→ Vetorizando com TF-IDF...
+✓ Matriz TF-IDF: (20, 500)
 → Treinando NearestNeighbors com n=5...
-✓ Precision proxy (mesma categoria): 0.85
+✓ Precision proxy (mesma categoria): 0.70
+  → Compare com o valor da Atividade 3 (embeddings semânticos no cluster)
 ✓ Modelo registrado no Registry como 'recomendador-qc'
 ```
 
@@ -56,10 +56,10 @@ Run ID: <uuid>
 
 1. Abrir https://ml.azure.com → seu Workspace
 2. **Jobs** → experimento `recomendacao-qc` → seu run
-3. Aba **Metrics:** `precision_at_k_proxy`, `num_produtos`, `embedding_dim`
+3. Aba **Metrics:** `precision_at_k_proxy`, `num_produtos`, `vocab_size`
 4. Aba **Outputs + logs:** `nn_model.pkl` em `model/`
 5. **Models** (menu lateral) → `recomendador-qc` v1
 
 ## Por que treinar local primeiro?
 
-Pedagogicamente, treinar local mostra o que o MLflow captura **sem o intermediário do job**. Você vê params/metrics/artifacts aparecendo no Studio em tempo real. Na Atividade 3 fazemos o mesmo, mas dentro de um **job reproduzível** com environment versionado e dataset versionado — o padrão para retreino futuro.
+Pedagogicamente, treinar local mostra o que o MLflow captura **sem o intermediário do job**. Você vê params/metrics/artifacts aparecerem no Studio em tempo real. Na Atividade 3 fazemos o mesmo, mas dentro de um **job reproduzível** com environment versionado e dataset versionado — o padrão para retreino futuro.
