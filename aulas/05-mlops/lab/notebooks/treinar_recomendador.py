@@ -19,7 +19,7 @@ Hiperparâmetros opcionais:
     N_NEIGHBORS       — número de vizinhos (default: 5)
 
 Dependências:
-    pip install --user mlflow azureml-mlflow azure-ai-ml azure-identity pandas scikit-learn
+    pip install --user "mlflow<2.17" azureml-mlflow azure-ai-ml azure-identity pandas scikit-learn
 """
 import os
 import pickle

@@ -16,7 +16,7 @@ cp ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv ~/qc-aula05/produto
 ## Instalar dependências
 
 ```bash
-pip install --user mlflow azureml-mlflow azure-ai-ml azure-identity scikit-learn pandas
+pip install --user "mlflow<2.17" azureml-mlflow azure-ai-ml azure-identity scikit-learn pandas
 ```
 
 > **Por que não `sentence-transformers`?** O Cloud Shell tem 5 GB de disco — `sentence-transformers` puxa `torch` (~1.5 GB) e esgotaria o espaço. Esta atividade usa TF-IDF (já incluso no scikit-learn) para demonstrar o fluxo MLflow → Registry. A Atividade 3 usa embeddings semânticos no Compute Cluster — compare os `precision_at_k_proxy` das duas abordagens.
