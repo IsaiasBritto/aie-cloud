@@ -259,7 +259,7 @@ d) **Promover** o melhor modelo com `tags.stage=Staging`
 
 **Entrega:**
 
-- `aula05/job/sweep.yml` no repo do grupo
+- `aulas/05-mlops/lab/job/sweep.yml` no repo do grupo
 - Print da aba "Trials" do sweep job
 - Reflexão: por que esses ranges de hyperparam? Em que outros parâmetros faria sweep numa situação real?
 

@@ -2,7 +2,7 @@ $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.sch
 name: blue
 # IMPORTANTE: deve ser o mesmo nome usado em endpoint.yml
 endpoint_name: rec-qc-<sufixo-unico>
-# Modelo registrado pelo job da Atividade 3 (após primeiro run, será versão 1; com Atividade 3 Parte D, virão v2 e v3)
+# Versão 1 = registrada pela Atividade 2 (notebook). Se a Atividade 2 foi pulada, o primeiro job cria a v1.
 model: azureml:recomendador-qc:1
 environment:
   conda_file: ../job/conda.yml

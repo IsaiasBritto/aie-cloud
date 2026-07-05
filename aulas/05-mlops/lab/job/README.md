@@ -37,6 +37,7 @@ az storage blob upload \
   --name aula05/produtos.csv \
   --file ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv \
   --auth-mode login --overwrite
+# Nota: se você seguiu o guia-lab.md, o arquivo está em ~/qc-aula05/produtos.csv — use esse caminho.
 ```
 
 ### 2. Criar o Data Asset versionado
@@ -79,7 +80,7 @@ No Studio, **Jobs** → experimento `recomendacao-qc-pipeline` → compare os 2 
 1. **Jobs** → status `Completed`
 2. Aba **Outputs + logs**: `outputs/nn_model.pkl`
 3. Aba **Metrics**: `precision_at_k_proxy`
-4. **Models**: nova versão `recomendador-qc:2` (e `:3` após o segundo run)
+4. **Models**: nova versão (`recomendador-qc:2` e `:3` se Atividade 2 foi feita; `:1` e `:2` caso contrário)
 
 ## Lição central
 

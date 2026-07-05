@@ -220,7 +220,7 @@ Acompanhe no Studio: **Jobs** → seu job → logs em tempo real.
 1. Job aparece em **Jobs** com status `Completed`
 2. Aba **Outputs + logs**: `outputs/nn_model.pkl`
 3. Aba **Metrics**: `precision_at_k_proxy`
-4. **Models**: nova versão `recomendador-qc:2`
+4. **Models**: nova versão (`recomendador-qc:2` se Atividade 2 foi feita; `:1` caso contrário)
 
 ### Parte D — Re-submeter com outro parâmetro (10 min)
 
@@ -233,7 +233,7 @@ az ml job create --file job.yml \
 
 No Studio, compare os 2 runs lado a lado: qual `precision_at_k_proxy` ficou maior? Modelo v3 deve aparecer no Registry.
 
-**✅ Checkpoint L₃:** 2 runs comparáveis no Studio? Modelo versionado v2 e v3?
+**✅ Checkpoint L₃:** 2 runs comparáveis no Studio? Modelo versionado (v2 e v3 se Atividade 2 foi feita; v1 e v2 caso contrário)?
 
 ---
 
@@ -325,7 +325,7 @@ Você editou `endpoint.yml` e `deployment.yml` com o nome único do seu endpoint
 
 ```bash
 cd ~/aie-cloud
-git checkout aulas/05-mlops/lab/endpoint/endpoint.yml aulas/05-mlops/lab/endpoint/deployment.yml
+git checkout aulas/05-mlops/lab/endpoint/endpoint.yml aulas/05-mlops/lab/endpoint/deployment.yml aulas/05-mlops/lab/job/job.yml
 ```
 
 ---
@@ -355,7 +355,7 @@ Uma 5ª tool da Function da Aula 3 — `/recomendar` — chamaria o Online Endpo
 | Job em "Queued" eternamente | Compute Cluster falhou ao escalar | Verificar quota de vCPUs na subscription |
 | Job falhou com "Image not found" | `conda.yml` inválido | Conferir indentação do YAML |
 | `az ml model update --set tags` falha | CLI v2 antiga | `az extension update -n ml` |
-| Endpoint deployment falhou | Modelo precisa de scoring script | Modelo registrado via `mlflow.sklearn.log_model` já vem com scoring built-in — se falhar, conferir versão do MLflow |
+| Endpoint deployment falhou | Modelo precisa de scoring script | Modelo registrado via `mlflow.pyfunc.log_model` já vem com scoring built-in — se falhar, conferir versão do MLflow |
 | Endpoint retorna 500 | Faltam libs no environment | Adicionar `sentence-transformers` no `conda_file` do deployment |
 | Custo > $5 no fim do dia | Endpoint esquecido | Sempre `az ml online-endpoint delete` antes do `terraform destroy` |
 
