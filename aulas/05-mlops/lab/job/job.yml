@@ -15,7 +15,7 @@ command: >-
   --n-neighbors ${{inputs.n_neighbors}}
 
 environment:
-  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu22.04:latest
+  image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
   conda_file: conda.yml
 
 compute: azureml:cpu-cluster

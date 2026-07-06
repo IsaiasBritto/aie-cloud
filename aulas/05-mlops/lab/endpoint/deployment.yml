@@ -6,6 +6,6 @@ endpoint_name: rec-qc-<sufixo-unico>
 model: azureml:recomendador-qc:1
 environment:
   conda_file: ../job/conda.yml
-  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu22.04:latest
+  image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
 instance_type: Standard_DS3_v2
 instance_count: 1
