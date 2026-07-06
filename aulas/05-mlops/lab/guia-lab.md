@@ -18,7 +18,7 @@ Wrap-up   — Deletar endpoint (CRÍTICO) + terraform destroy            ~5 min
 
 **Pré-requisito:** apenas o `produtos.csv` da Aula 2 (já está commitado em [`../../02-storage-bancos/lab/data/produtos.csv`](../../02-storage-bancos/lab/data/produtos.csv)). **Não precisa ter a Aula 2 viva.**
 
-> **⚠️ Alerta de custo:** Online Endpoint custa **~$0,30/h** (Standard_DS3_v2). **DELETAR ao final do L₄**, antes do `terraform destroy`. Esquecer = ~$7/dia consumindo seu crédito.
+> **⚠️ Alerta de custo:** Online Endpoint custa **~$0,15/h** (Standard_DS2_v2). **DELETAR ao final do L₄**, antes do `terraform destroy`. Esquecer = ~$3,60/dia consumindo seu crédito.
 
 ---
 
@@ -270,7 +270,7 @@ az ml online-deployment create --file deployment.yml \
   -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
 ```
 
-> **⚠️ A partir daqui o endpoint custa ~$0,30/h.** Siga direto para o teste e o destroy.
+> **⚠️ A partir daqui o endpoint custa ~$0,15/h.** Siga direto para o teste e o destroy.
 
 ### Passo 3 — Testar
 
@@ -354,8 +354,8 @@ Uma 5ª tool da Function da Aula 3 — `/recomendar` — chamaria o Online Endpo
 | Job falhou com "Image not found" | `conda.yml` inválido | Conferir indentação do YAML |
 | `az ml model update --set tags` falha | CLI v2 antiga | `az extension update -n ml` |
 | Endpoint deployment falhou | Modelo precisa de scoring script | Modelo registrado via `mlflow.pyfunc.log_model` já vem com scoring built-in — se falhar, conferir versão do MLflow |
-| Endpoint retorna 500 | Faltam libs no environment | Verificar que o `conda_file` do deployment inclui todas as dependências do `train.py` |
-| Custo > $5 no fim do dia | Endpoint esquecido | Sempre `az ml online-endpoint delete` antes do `terraform destroy` |
+| Endpoint retorna 500 | Faltam libs no pip_requirements | `pip_requirements` do `mlflow.pyfunc.log_model` deve incluir todos os pacotes que `predict()` usa em runtime (sklearn, pandas, numpy, azureml-ai-monitoring) |
+| Custo > $3 no fim do dia | Endpoint esquecido | Sempre `az ml online-endpoint delete` antes do `terraform destroy` |
 
 ---
 

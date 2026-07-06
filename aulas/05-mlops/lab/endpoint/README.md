@@ -4,7 +4,7 @@ Publica o modelo `recomendador-qc:1` como **Managed Online Endpoint** REST.
 
 ## ⚠️ ALERTA DE CUSTO
 
-O Online Endpoint custa **~$0,30/h** (Standard_DS3_v2). Esquecer ligado = **~$7/dia** do seu crédito do Azure for Students.
+O Online Endpoint custa **~$0,15/h** (Standard_DS2_v2). Esquecer ligado = **~$3,60/dia** do seu crédito do Azure for Students.
 
 **SEMPRE delete o endpoint ANTES do `terraform destroy`:**
 
@@ -58,9 +58,9 @@ az ml online-deployment create --file deployment.yml \
   -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
 ```
 
-Tempo: **~5 min**. Build da imagem + provisão da instância DS3_v2.
+Tempo: **~5 min**. Provisão da instância DS2_v2 + pull da imagem MLflow do modelo.
 
-> **A partir daqui o endpoint custa ~$0,30/h.** Siga direto para o teste e o destroy. Não interrompa o lab.
+> **A partir daqui o endpoint custa ~$0,15/h.** Siga direto para o teste e o destroy. Não interrompa o lab.
 
 ### 3. Testar
 

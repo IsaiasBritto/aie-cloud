@@ -6,6 +6,7 @@ Provisiona a infraestrutura de MLOps da Quantum Commerce:
 - **Storage Account** (datastore default `workspaceblobstore`)
 - **Application Insights** (telemetria do Workspace)
 - **Key Vault** (segredos do Workspace)
+- **Container Registry** (imagens dos environments de treino/serving — pré-provisionado para eliminar delay no primeiro job)
 - **Azure Machine Learning Workspace**
 - **Compute Cluster** `cpu-cluster` com **scale-to-zero** (min 0 / max 2 nodes, idle 2 min → desliga)
 
@@ -37,9 +38,14 @@ Tempo: ~5 min (Workspace é o mais lento para destruir).
 
 | Arquivo | O que define |
 |---------|--------------|
-| [main.tf](main.tf) | Providers, RG, locals, Storage, App Insights, Key Vault, Workspace, Compute Cluster |
+| [main.tf](main.tf) | Provider, random_string (sufixo único), Resource Group, locals e tags |
+| [storage.tf](storage.tf) | Storage Account (datastore padrão do Workspace) |
+| [keyvault.tf](keyvault.tf) | Key Vault (segredos do Workspace) |
+| [acr.tf](acr.tf) | Container Registry (pré-provisionado — evita delay de ~20 min no primeiro job) |
+| [workspace.tf](workspace.tf) | Application Insights + Azure ML Workspace |
+| [compute.tf](compute.tf) | Compute Cluster `cpu-cluster` com scale-to-zero |
 | [variables.tf](variables.tf) | `location` (default `eastus2`) |
-| [outputs.tf](outputs.tf) | `subscription_id`, `workspace_name`, `resource_group_name`, `storage_account_name`, `compute_cluster_name` |
+| [outputs.tf](outputs.tf) | `subscription_id`, `workspace_name`, `resource_group_name`, `storage_account_name`, `compute_cluster_name`, `container_registry_name` |
 
 ## Outputs (usados pelos scripts e jobs)
 
