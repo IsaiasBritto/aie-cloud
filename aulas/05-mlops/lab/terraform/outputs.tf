@@ -22,3 +22,8 @@ output "compute_cluster_name" {
   description = "Nome do Compute Cluster (sempre 'cpu-cluster')"
   value       = azurerm_machine_learning_compute_cluster.cpu.name
 }
+
+output "container_registry_name" {
+  description = "Nome do Container Registry (imagens de environment dos jobs)"
+  value       = azurerm_container_registry.ml.name
+}

@@ -5,6 +5,12 @@ resource "azurerm_application_insights" "ml" {
   location            = azurerm_resource_group.rg.location
   application_type    = "web"
   tags                = local.tags
+
+  lifecycle {
+    # Azure ML vincula automaticamente um Log Analytics workspace ao criar o Workspace;
+    # ignorar para evitar drift que o provider tenta reverter (operação proibida pela API).
+    ignore_changes = [workspace_id]
+  }
 }
 
 # Azure ML Workspace
@@ -15,6 +21,7 @@ resource "azurerm_machine_learning_workspace" "ws" {
   application_insights_id       = azurerm_application_insights.ml.id
   key_vault_id                  = azurerm_key_vault.ml.id
   storage_account_id            = azurerm_storage_account.ml.id
+  container_registry_id         = azurerm_container_registry.ml.id
   public_network_access_enabled = true
 
   identity {
