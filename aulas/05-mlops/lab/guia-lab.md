@@ -280,6 +280,15 @@ az ml online-deployment create --file deployment.yml \
   --endpoint-name "$ENDPOINT_NAME" \
   --all-traffic \
   -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+
+# 3. Confirmar que o tráfego foi atribuído (deve mostrar blue=100)
+az ml online-endpoint show --name "$ENDPOINT_NAME" \
+  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" \
+  --query "traffic" -o json
+
+# Se mostrar {} ou blue=0, atribuir manualmente:
+# az ml online-endpoint update --name "$ENDPOINT_NAME" --traffic "blue=100" \
+#   -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
 ```
 
 > **⚠️ A partir daqui o endpoint custa ~$0,15/h.** Siga direto para o teste e o destroy.
