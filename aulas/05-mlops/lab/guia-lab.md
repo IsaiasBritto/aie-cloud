@@ -238,23 +238,35 @@ No Studio, compare os 2 runs lado a lado: qual `precision_at_k_proxy` ficou maio
 
 ## Atividade 4 — Managed Online Endpoint
 
-**Objetivo:** Deploy do modelo como endpoint REST. **CRÍTICO:** deletar imediatamente após testar — endpoint custa ~$0,30/h ativo.
+**Objetivo:** Deploy do modelo como endpoint REST. **CRÍTICO:** deletar imediatamente após testar — endpoint custa ~$0,15/h ativo.
 
-### Passo 1 — Definir um nome único
-
-Nome de Online Endpoint é **global no Azure**. Substitua o placeholder nos YAMLs:
+### Passo 1 — Identificar a versão do modelo e definir nome do endpoint
 
 ```bash
 cd ~/aie-cloud/aulas/05-mlops/lab/endpoint
 
-# Gerar sufixo único
+# Ver quais versões do modelo estão no Registry
+az ml model list --name recomendador-qc \
+  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" \
+  --query "[].version" -o table
+
+# Pegar a versão mais recente (registrada pela Atividade 3)
+MODEL_VERSION=$(az ml model list --name recomendador-qc \
+  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" \
+  --query "[-1].version" -o tsv)
+echo "Versão do modelo: $MODEL_VERSION"
+
+# Gerar sufixo único para o nome do endpoint (global no Azure)
 SUFIXO="$(whoami | tr -cd 'a-z0-9')-$RANDOM"
 export ENDPOINT_NAME="rec-qc-$SUFIXO"
 echo "Endpoint: $ENDPOINT_NAME"
 
 # Substituir nos YAMLs (sed in-place)
 sed -i "s/rec-qc-<sufixo-unico>/$ENDPOINT_NAME/g" endpoint.yml deployment.yml
+sed -i "s/recomendador-qc:1/recomendador-qc:$MODEL_VERSION/g" deployment.yml
 ```
+
+> **Por que usar a versão mais recente?** O `deployment.yml` template aponta para `:1`, mas o endpoint precisa que o modelo tenha sido registrado com `pip_requirements` corretos (inclui `azureml-ai-monitoring`). A versão registrada pela **Atividade 3** (`train.py`) já tem isso; a v1 da Atividade 2 não.
 
 ### Passo 2 — Criar endpoint + deployment
 

@@ -129,11 +129,14 @@ def main():
             pickle.dump({"nn": nn, "tfidf_matrix": tfidf_matrix, "df": df}, f)
 
         # === 9. Registrar no Model Registry ===
+        # pip_requirements declara o que o endpoint precisa em runtime (não o treino).
+        # azureml-ai-monitoring é importado pelo mlflow_score_script.py do Azure ML.
         mlflow.pyfunc.log_model(
             artifact_path="pyfunc_model",
             python_model=RecomendadorPyfunc(),
             artifacts={"modelo_pkl": "./model_artifacts/nn_model.pkl"},
             registered_model_name="recomendador-qc",
+            pip_requirements=["scikit-learn", "pandas", "numpy", "azureml-ai-monitoring"],
         )
 
         print("✓ Modelo registrado no Registry como 'recomendador-qc'")
