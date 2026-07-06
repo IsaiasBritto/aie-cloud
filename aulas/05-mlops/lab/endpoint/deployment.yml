@@ -4,8 +4,5 @@ name: blue
 endpoint_name: rec-qc-<sufixo-unico>
 # Versão 1 = registrada pela Atividade 2 (notebook). Se a Atividade 2 foi pulada, o primeiro job cria a v1.
 model: azureml:recomendador-qc:1
-environment:
-  conda_file: ../job/conda.yml
-  image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
-instance_type: Standard_DS3_v2
+instance_type: Standard_DS2_v2
 instance_count: 1

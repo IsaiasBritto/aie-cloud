@@ -20,7 +20,6 @@ import pickle
 import mlflow
 import mlflow.pyfunc
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 from sklearn.neighbors import NearestNeighbors
 
 
@@ -81,6 +80,7 @@ def main():
 
     # Embeddings
     print(f"→ Gerando embeddings com {args.embedding_model}")
+    from sentence_transformers import SentenceTransformer
     model_emb = SentenceTransformer(args.embedding_model)
     textos = (df["nome"] + ". " + df["descricao"]).tolist()
     embeddings = model_emb.encode(textos, show_progress_bar=False)
@@ -111,11 +111,14 @@ def main():
 
     # Registrar no Model Registry como pyfunc (nn + embeddings + df empacotados)
     # NearestNeighbors não tem predict() — pyfunc empacota o pkl completo para o endpoint.
+    # pip_requirements declara apenas o que o endpoint precisa em runtime.
+    # sentence-transformers/torch são usados só no treino; o predict usa embeddings pré-computados.
     mlflow.pyfunc.log_model(
         artifact_path="pyfunc_model",
         python_model=RecomendadorPyfunc(),
         artifacts={"modelo_pkl": "./outputs/nn_model.pkl"},
         registered_model_name="recomendador-qc",
+        pip_requirements=["scikit-learn", "pandas", "numpy", "azureml-ai-monitoring"],
     )
     print("✓ Modelo registrado no Registry")
 
