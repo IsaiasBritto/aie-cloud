@@ -45,7 +45,7 @@ Escolha **Bash** quando perguntado (vamos usar Bash em todos os labs).
 Dentro do Cloud Shell, rode:
 
 ```bash
-git clone https://github.com/elthonf/aie-cloud.git
+git clone https://github.com/isaiasbritto/aie-cloud.git
 cd aie-cloud
 ```
 
