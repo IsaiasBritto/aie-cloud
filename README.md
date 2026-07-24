@@ -2,7 +2,7 @@
 
 Repositório de labs, exercícios e código de infraestrutura da disciplina **Cloud & Cognitive Environments**, do MBA **AI Engineering & Multi-Agents** da FIAP.
 
-**Professor:** Elthon Freitas
+**Professor:** Isaias Britto
 
 ---
 
