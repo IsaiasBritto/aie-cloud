@@ -4,6 +4,7 @@ Repositório de labs, exercícios e código de infraestrutura da disciplina **Cl
 
 **Professor:** Isaias Britto
 
+**O crédito de elaboração do material é do Prof. Elton Freitas, sendo esse um Fork do material original - https://github.com/elthonf/aie-cloud/**
 ---
 
 ## Sobre a disciplina
