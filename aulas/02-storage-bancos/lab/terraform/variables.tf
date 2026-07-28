@@ -24,7 +24,7 @@ variable "location_search" {
 variable "location_aci" {
   type        = string
   description = "Regiao do Container Instance - IPs de saida diferentes tem cota propria no Docker Hub"
-  default     = null
+  default     = "southcentralus"
 }
 
 variable "cosmos_free_tier" {
