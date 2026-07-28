@@ -11,9 +11,15 @@ variable "resource_group_name" {
 }
 
 variable "vm_size" {
-  description = "Tamanho da VM (igual ao template exportado do portal)"
+  description = "Tamanho da VM (igual ao template exportado do portal — Standard_D2ps_v6, série Arm Cobalt)"
   type        = string
-  default     = "Standard_D2s_v3"
+  default     = "Standard_D2ps_v6"
+}
+
+variable "zone" {
+  description = "Availability Zone da VM (igual ao template: zona 1)"
+  type        = string
+  default     = "1"
 }
 
 variable "admin_username" {
