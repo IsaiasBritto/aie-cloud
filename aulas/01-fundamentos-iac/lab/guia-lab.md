@@ -201,7 +201,7 @@ Uma startup de e-commerce precisa hospedar seu backend:
 > ⚠️ **Atenção ao custo:** `Standard_D2s_v3` + disco Premium SSD **não é free-tier** (consome ~$0,10/h do seu crédito). Esta é a configuração de referência do lab — por isso a **regra de ouro** vale dobrado: destrua tudo (Atividade 6) assim que terminar.
 
 3. Aba **"Discos"**: tipo de disco do SO = **Premium SSD (LRS)**
-4. Aba **"Rede"**: deixar o Azure criar a VNet (`vm-lab-aula01-vnet`, `10.0.0.0/16`) e o IP público (`vm-lab-aula01-ip`, Standard estático). No NSG, confirme as portas de entrada **SSH (22)**, **HTTP (80)** e **HTTPS (443)**
+4. Aba **"Rede"**: deixar o Azure criar a VNet (`vm-lab-aula01-vnet`, `10.0.0.0/24`) e o IP público (`vm-lab-aula01-ip`, Standard estático). No NSG, confirme as portas de entrada **SSH (22)**, **HTTP (80)** e **HTTPS (443)**
 5. Aba **"Gerenciamento"**: **desmarque** Application Insights e monitoramento avançado (custo)
 6. **"Revisar + criar"** → observe o custo estimado → **"Criar"**
 7. Janela aparece para baixar a chave SSH — clique em **"Baixar chave privada e criar recurso"**.
