@@ -73,7 +73,7 @@ Execute no Cloud Shell:
 
 ```bash
 # Confirmar autenticação
-az account show --query "{nome:name, id:id, usuario:user.name}" -o table
+az account show --query "{nome:name, id:id, usuario:user.name}"
 
 # Confirmar ferramentas instaladas
 terraform -version
@@ -82,7 +82,7 @@ python3 --version
 
 # Clonar o repositório da disciplina
 cd ~
-git clone https://github.com/elthonf/aie-cloud.git
+git clone https://github.com/isaiasbritto/aie-cloud.git
 cd aie-cloud
 
 # Abrir o editor estilo VS Code com o repo aberto
