@@ -192,8 +192,8 @@ Uma startup de e-commerce precisa hospedar seu backend:
 | Nome | `vm-lab-aula01` |
 | Região | **East US 2** (`eastus2`) |
 | Opções de disponibilidade | Nenhuma redundância |
-| Imagem | **Ubuntu Server 26.04 LTS - x64 Gen2** |
-| Tamanho | **Standard_D2ls_v5** (2 vCPU, 4 GiB RAM) |
+| Imagem | **Ubuntu Pro Server 26.04 LTS - ARM Gen2** |
+| Tamanho | **Standard_D2ps_v6** (2 vCPU, 8 GiB RAM) |
 | Autenticação | Chave pública SSH |
 | Usuário | `azureuser` |
 | Chave SSH | **Gerar novo par** (nome: `vm-lab-aula01-key`) |
