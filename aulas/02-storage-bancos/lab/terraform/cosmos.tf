@@ -4,7 +4,7 @@
 # 1 conta free-tier por assinatura — o que trava o lab se já houver outra.
 # Em serverless o custo das 4h de aula é de centavos. Ligue via -var se quiser.
 resource "azurerm_cosmosdb_account" "qc" {
-  name                = "cosmos-qc-${random_string.sufixo.result}"
+  name                = "cosmos-qc-${random_string.sufixo.result}b"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   offer_type          = "Standard"
