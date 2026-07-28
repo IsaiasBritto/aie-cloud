@@ -40,3 +40,15 @@ variable "sql_admin_password" {
   type        = string
   sensitive   = true
 }
+
+variable "dockerhub_user" {
+  type      = string
+  sensitive = true
+  default   = null
+}
+
+variable "dockerhub_token" {
+  type      = string
+  sensitive = true
+  default   = null
+}
