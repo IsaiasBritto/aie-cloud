@@ -124,7 +124,8 @@ resource "azurerm_network_interface_security_group_association" "nic_nsg" {
 }
 
 # ---------------------------------------------------------------------------
-# Máquina virtual — Ubuntu 24.04 LTS, Standard_D2s_v3, disco Premium SSD
+# Máquina virtual — Ubuntu 26.04 LTS (ARM64), Standard_D2ps_v6 (série Arm Cobalt)
+# Zona de disponibilidade 1, Trusted Launch (Secure Boot + vTPM), Spot instance
 # Autenticação somente por chave SSH (disablePasswordAuthentication = true)
 # ---------------------------------------------------------------------------
 resource "azurerm_linux_virtual_machine" "vm" {
@@ -133,10 +134,20 @@ resource "azurerm_linux_virtual_machine" "vm" {
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = azurerm_resource_group.rg.location
   size                            = var.vm_size
+  zone                            = var.zone
   admin_username                  = var.admin_username
   disable_password_authentication = true
   network_interface_ids           = [azurerm_network_interface.nic.id]
   tags                            = local.tags
+
+  # Trusted Launch (igual ao securityProfile do template)
+  secure_boot_enabled = true
+  vtpm_enabled        = true
+
+  # Spot instance (igual a priority/evictionPolicy/billingProfile do template)
+  priority        = "Spot"
+  eviction_policy = "Deallocate"
+  max_bid_price   = -1
 
   admin_ssh_key {
     username   = var.admin_username
@@ -146,12 +157,15 @@ resource "azurerm_linux_virtual_machine" "vm" {
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Premium_LRS"
+    disk_size_gb         = 30
   }
+
+  disk_controller_type = "SCSI"
 
   source_image_reference {
     publisher = "canonical"
-    offer     = "ubuntu-24_04-lts"
-    sku       = "server"
+    offer     = "ubuntu-26_04-lts"
+    sku       = "pro-server-arm64"
     version   = "latest"
   }
 
