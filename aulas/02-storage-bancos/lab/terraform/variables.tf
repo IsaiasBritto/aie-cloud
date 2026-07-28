@@ -52,3 +52,21 @@ variable "dockerhub_token" {
   sensitive = true
   default   = null
 }
+
+variable "registry_server" {
+  type        = string
+  description = "Ex: meuacr.azurecr.io. Vazio = Docker Hub publico."
+  default     = null
+}
+
+variable "registry_user" {
+  type      = string
+  sensitive = true
+  default   = null
+}
+
+variable "registry_password" {
+  type      = string
+  sensitive = true
+  default   = null
+}
