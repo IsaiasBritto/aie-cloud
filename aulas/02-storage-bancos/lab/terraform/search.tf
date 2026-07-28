@@ -5,6 +5,7 @@ resource "azurerm_search_service" "qc" {
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = "free"
+  semantic_search_sku = "free"
   # NÃO definimos semantic_search_sku aqui: o provider azurerm 3.x recusa esse
   # argumento quando sku="free" ("can only be specified when sku is not free"),
   # apesar de o SKU free SUPORTAR o semantic ranker (plano "free", 1000 q/mês).
@@ -43,12 +44,12 @@ resource "azurerm_role_assignment" "search_index_data" {
 # azurerm 3.x recusa semantic_search_sku quando sku="free", apesar de o Azure
 # suportar. Sem isso, buscas com query_type="semantic" falham com
 # "Semantic search is not enabled for this service".
-resource "azapi_update_resource" "search_semantic" {
-  type        = "Microsoft.Search/searchServices@2023-11-01"
-  resource_id = azurerm_search_service.qc.id
-  body = jsonencode({
-    properties = {
-      semanticSearch = "free"
-    }
-  })
-}
+#resource "azapi_update_resource" "search_semantic" {
+#  type        = "Microsoft.Search/searchServices@2023-11-01"
+#  resource_id = azurerm_search_service.qc.id
+#  body = jsonencode({
+#    properties = {
+#      semanticSearch = "free"
+#    }
+#  })
+#}
