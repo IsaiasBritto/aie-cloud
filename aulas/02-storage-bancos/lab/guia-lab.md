@@ -44,6 +44,11 @@ No Cloud Shell:
 # Confirmar autenticação
 az account show --query "{nome:name, id:id}" -o table
 
+# Clonar o repositório da disciplina
+cd ~
+git clone https://github.com/isaiasbritto/aie-cloud.git
+cd aie-cloud
+
 # Atualizar o repositório (caso já tenha clonado antes)
 cd ~/aie-cloud
 git pull origin main
