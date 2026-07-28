@@ -1,8 +1,12 @@
 terraform {
+  required_version = ">= 1.9"
+
   required_providers {
     azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+      source = "hashicorp/azurerm"
+      # 4.x e obrigatorio: o codigo usa free_tier_enabled (cosmos) e
+      # partition_key_paths (container), que nao existem na 3.x.
+      version = "~> 4.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -16,24 +20,18 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.12"
     }
-    # azapi: usado para habilitar o semantic ranker do AI Search, que o
-    # provider azurerm 3.x não permite configurar quando o SKU é "free".
-    azapi = {
-      source  = "Azure/azapi"
-      version = "~> 1.15"
-    }
   }
 }
 
 provider "azurerm" {
   features {
     key_vault {
+      # Permite recriar o Key Vault com o mesmo nome logo apos um destroy,
+      # sem esperar os 7 dias de soft delete.
       purge_soft_delete_on_destroy = true
     }
   }
 }
-
-provider "azapi" {}
 
 resource "random_string" "sufixo" {
   length  = 6
