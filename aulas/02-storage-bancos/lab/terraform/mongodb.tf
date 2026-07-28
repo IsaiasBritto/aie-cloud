@@ -12,6 +12,15 @@ resource "azurerm_container_group" "mongodb" {
   os_type             = "Linux"
   tags                = local.tags
 
+  dynamic "image_registry_credential" {
+    for_each = var.dockerhub_user == null ? [] : [1]
+    content {
+      server   = "index.docker.io"
+      username = var.dockerhub_user
+      password = var.dockerhub_token
+    }
+  }
+
   # Container 1: MongoDB 7.0
   container {
     name   = "mongodb"
