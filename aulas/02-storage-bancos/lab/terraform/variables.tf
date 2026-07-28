@@ -6,7 +6,7 @@ variable "location" {
   # terraform apply -var="location=<regiao>"
   description = "Região do Azure onde os recursos serão provisionados"
   type        = string
-  default     = "centralus"
+  default     = "eastus2"
 }
 
 variable "cosmos_free_tier" {
