@@ -165,7 +165,7 @@ Abra [sql.tf](terraform/sql.tf) e [keyvault.tf](terraform/keyvault.tf). Observe:
 ### Passo 2 — Instalar dependências Python
 
 ```bash
-pip install --user pyodbc azure-identity azure-keyvault-secrets azure-storage-blob
+pip install --user -r ../scripts/requirements.txt
 ```
 
 > No Cloud Shell, `pip install --user` vai para `~/.local` (storage persistente — não suja a máquina do aluno).
