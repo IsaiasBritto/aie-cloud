@@ -192,8 +192,8 @@ Uma startup de e-commerce precisa hospedar seu backend:
 | Nome | `vm-lab-aula01` |
 | Região | **East US 2** (`eastus2`) |
 | Opções de disponibilidade | Nenhuma redundância |
-| Imagem | **Ubuntu Server 24.04 LTS** |
-| Tamanho | **Standard_D2s_v3** (2 vCPU, 8 GB RAM) |
+| Imagem | **Ubuntu Server 26.04 LTS - x64 Gen2** |
+| Tamanho | **Standard_D2ls_v5** (2 vCPU, 4 GiB RAM) |
 | Autenticação | Chave pública SSH |
 | Usuário | `azureuser` |
 | Chave SSH | **Gerar novo par** (nome: `vm-lab-aula01-key`) |
@@ -240,7 +240,7 @@ Uma startup de e-commerce precisa hospedar seu backend:
 
 ## Atividade 5 — Terraform: recriar a MESMA VM via IaC
 
-**Objetivo:** Reprovisionar via Terraform a **mesma VM** que você criou no portal na Atividade 4 (Ubuntu 24.04, `Standard_D2s_v3`, com VNet + NSG + IP público). Esse código é o equivalente Terraform do template ARM que está em [`../template/`](../template/) — aquele que o portal gera no link "Baixar um modelo para automação".
+**Objetivo:** Reprovisionar via Terraform a **mesma VM** que você criou no portal na Atividade 4 (Ubuntu 24.04, `Standard_D2s_v3`, com VNet + NSG + IP público). Esse código é o equivalente em Terraform do template ARM que está em [`../template/`](../template/) — aquele que o portal gera no link "Baixar um modelo para automação".
 
 ### Passo 1 — Garantir a chave SSH no Cloud Shell
 
