@@ -3,7 +3,8 @@
 resource "azurerm_search_service" "qc" {
   name                = "srch-qc-${random_string.sufixo.result}"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  #location            = azurerm_resource_group.rg.location
+  location            = local.location_search
   sku                 = "free"
   semantic_search_sku = "free"
   # NÃO definimos semantic_search_sku aqui: o provider azurerm 3.x recusa esse
