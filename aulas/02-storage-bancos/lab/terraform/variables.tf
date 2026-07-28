@@ -21,6 +21,12 @@ variable "location_search" {
   default     = "southcentralus"
 }
 
+variable "location_aci" {
+  type        = string
+  description = "Regiao do Container Instance - IPs de saida diferentes tem cota propria no Docker Hub"
+  default     = null
+}
+
 variable "cosmos_free_tier" {
   # Mantido desligado: free-tier não beneficia conta serverless e o Azure só
   # permite 1 conta free-tier por assinatura (trava o lab se já houver outra).
