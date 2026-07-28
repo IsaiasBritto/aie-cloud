@@ -3,7 +3,9 @@
 # Mesma abordagem da Aula 4: sem problema de capacidade de SKU, inicialização em ~2 min.
 resource "azurerm_container_group" "mongodb" {
   name                = "aci-qc-aula02-${random_string.sufixo.result}"
-  location            = azurerm_resource_group.rg.location
+  location            = local.location_aci
+  #location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
   resource_group_name = azurerm_resource_group.rg.name
   ip_address_type     = "Public"
   dns_name_label      = "qc-mongo-${random_string.sufixo.result}"
