@@ -235,7 +235,6 @@ Por isso o [popular_reviews.py](scripts/popular_reviews.py) autentica no Cosmos 
 [popular_reviews.py](scripts/popular_reviews.py) insere 30 reviews fictícias com diferentes scores.
 
 ```bash
-pip install --user azure-cosmos azure-keyvault-secrets azure-identity
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 popular_reviews.py
 ```
