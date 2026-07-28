@@ -2,7 +2,7 @@
 resource "azurerm_mssql_server" "qc" {
   name                         = "sql-qc-${random_string.sufixo.result}"
   resource_group_name          = azurerm_resource_group.rg.name
-  location                     = azurerm_resource_group.rg.location
+  location                     = local.location_sql
   version                      = "12.0"
   administrator_login          = "sqladminqc"
   administrator_login_password = var.sql_admin_password
@@ -14,8 +14,10 @@ resource "azurerm_mssql_server" "qc" {
 resource "azurerm_mssql_firewall_rule" "azure" {
   name             = "AllowAzureServices"
   server_id        = azurerm_mssql_server.qc.id
-  start_ip_address = "0.0.0.0"
-  end_ip_address   = "0.0.0.0"
+  start_ip_address = chomp(data.http.meu_ip.response_body)
+  end_ip_address   = chomp(data.http.meu_ip.response_body)
+  #start_ip_address = "0.0.0.0"
+  #end_ip_address   = "0.0.0.0"
 }
 
 # Libera o IP atual do Cloud Shell para conexão direta via Python
