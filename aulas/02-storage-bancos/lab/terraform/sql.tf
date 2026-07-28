@@ -10,17 +10,21 @@ resource "azurerm_mssql_server" "qc" {
   tags                         = local.tags
 }
 
-# Permite serviços Azure conectarem (necessário para a Function da Aula 3)
+# Permite serviços Azure conectarem (necessário para a Function da Aula 3
+# e para o indexer do AI Search).
+# ATENCAO: 0.0.0.0 - 0.0.0.0 NAO e um IP. E o valor magico que o Azure SQL usa
+# para "permitir servicos e recursos do Azure". Trocar por um IP real quebra o
+# acesso de qualquer outro servico Azure ao banco.
 resource "azurerm_mssql_firewall_rule" "azure" {
   name             = "AllowAzureServices"
   server_id        = azurerm_mssql_server.qc.id
-  start_ip_address = chomp(data.http.meu_ip.response_body)
-  end_ip_address   = chomp(data.http.meu_ip.response_body)
-  #start_ip_address = "0.0.0.0"
-  #end_ip_address   = "0.0.0.0"
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
 }
 
-# Libera o IP atual do Cloud Shell para conexão direta via Python
+# Libera o IP atual do Cloud Shell para conexão direta via Python.
+# O chomp remove a quebra de linha que alguns servicos de echo-ip devolvem;
+# sem ele o Azure rejeita o valor como IP malformado.
 data "http" "meu_ip" {
   url = "https://api.ipify.org"
 }
