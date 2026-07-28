@@ -19,7 +19,7 @@ test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
 
 ```bash
 # Clonar o repositório (apenas na primeira vez)
-git clone https://github.com/elthonf/aie-cloud.git
+git clone https://github.com/IsaiasBritto/aie-cloud.git
 cd aie-cloud/aulas/01-fundamentos-iac/lab/terraform
 
 # Inicializar providers
