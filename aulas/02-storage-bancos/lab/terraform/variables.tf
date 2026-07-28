@@ -9,6 +9,18 @@ variable "location" {
   default     = "eastus2"
 }
 
+variable "location_sql" {
+  type        = string
+  description = "Região do SQL Server — separada porque nem toda região permite provisionamento"
+  default     = "canadacentral"
+}
+
+variable "location_search" {
+  type        = string
+  description = "Região do AI Search — o SKU free tem cota por região"
+  default     = "southcentralus"
+}
+
 variable "cosmos_free_tier" {
   # Mantido desligado: free-tier não beneficia conta serverless e o Azure só
   # permite 1 conta free-tier por assinatura (trava o lab se já houver outra).
