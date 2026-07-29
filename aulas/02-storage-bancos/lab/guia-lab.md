@@ -325,12 +325,11 @@ O tier `free` suporta semantic search (1000 queries/mês), mas o Terraform não
 consegue declarar isso — o provider recusa o argumento quando o SKU é `free`.
 Rode uma vez, depois do apply:
 
-```bash
 az search service update \
   --name $(terraform output -raw search_service_name) \
   --resource-group $(terraform output -raw resource_group_name) \
   --semantic-search free
-```
+
 Sem esse passo, `indexar_produtos.py` funciona na busca por keyword e falha na
 busca semântica com `FeatureNotSupportedInService`.
 
