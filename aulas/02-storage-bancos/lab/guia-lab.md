@@ -278,7 +278,6 @@ O script já tenta por até 100 segundos automaticamente — não é necessário
 #### Passo 3 — Rodar o script de reviews
 
 ```bash
-pip install --user pymongo
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 popular_reviews_mongo.py
 ```
@@ -287,9 +286,12 @@ Esperado: 30 reviews inseridas + listagem de reviews score ≥ 4 do produto 5. *
 
 #### Passo 4 — Explorar no Mongo Express
 
-1. Abrir no browser o endereço do `terraform output mongo_express_url` (ex.: `http://20.x.x.x:8081`)
-2. Clicar em **qc-db** → **reviews** → **View**
-3. Observar os documentos JSON — mesma estrutura do Cosmos (sem o overhead de `_ts`, `_etag`, `_rid`)
+1. Recuperar o endereço do servidor do Mongo
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+terraform output mongo_express_url
+3. Com o valor apresentado (ex.: `http://20.x.x.x:8081`) iremos, abrir no browser o endereço do `terraform output mongo_express_url`
+4. Clicar em **qc-db** → **reviews** → **View**
+5. Observar os documentos JSON — mesma estrutura do Cosmos (sem o overhead de `_ts`, `_etag`, `_rid`)
 
 **✅ Checkpoint L₃-A.2:** Você vê 30 reviews no Mongo Express?
 
