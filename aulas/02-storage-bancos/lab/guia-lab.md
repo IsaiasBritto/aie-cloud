@@ -321,6 +321,21 @@ pip install --user azure-search-documents
 # Aguardar role propagar (~30s desde o terraform apply)
 sleep 30
 
+O tier `free` suporta semantic search (1000 queries/mês), mas o Terraform não
+consegue declarar isso — o provider recusa o argumento quando o SKU é `free`.
+Rode uma vez, depois do apply:
+
+```bash
+az search service update \
+  --name $(terraform output -raw search_service_name) \
+  --resource-group $(terraform output -raw resource_group_name) \
+  --semantic-search free
+```
+Sem esse passo, `indexar_produtos.py` funciona na busca por keyword e falha na
+busca semântica com `FeatureNotSupportedInService`.
+
+Após a execução do script, podemos seguir com o exercício:
+
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 indexar_produtos.py
 ```
