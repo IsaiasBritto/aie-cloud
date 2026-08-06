@@ -185,8 +185,8 @@ Uma startup de e-commerce precisa hospedar seu backend:
 
 2. Aba **"Básico"**:
 
-| Campo | Valor (Opção 1) | Valor (Opção 2)
-|-------|-------|
+| Campo | Valor (Opção 1) | Valor (Opção 2) |
+|-------|-------|-------|
 | Assinatura | Azure for Students | Azure for Students |
 | Grupo de recursos | `rg-lab-aula01` | `rg-lab-aula01` |
 | Nome | `vm-lab-aula01` | `vm-lab-aula01` |
