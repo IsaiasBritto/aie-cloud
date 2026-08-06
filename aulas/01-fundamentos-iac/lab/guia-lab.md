@@ -185,18 +185,18 @@ Uma startup de e-commerce precisa hospedar seu backend:
 
 2. Aba **"Básico"**:
 
-| Campo | Valor |
+| Campo | Valor (Opção 1) | Valor (Opção 2)
 |-------|-------|
-| Assinatura | Azure for Students |
-| Grupo de recursos | `rg-lab-aula01` |
-| Nome | `vm-lab-aula01` |
-| Região | **East US 2** (`eastus2`) |
-| Opções de disponibilidade | Nenhuma redundância |
-| Imagem | **Ubuntu Pro Server 26.04 LTS - ARM Gen2** |
-| Tamanho | **Standard_D2ps_v6** (2 vCPU, 8 GiB RAM) |
-| Autenticação | Chave pública SSH |
-| Usuário | `azureuser` |
-| Chave SSH | **Gerar novo par** (nome: `vm-lab-aula01-key`) |
+| Assinatura | Azure for Students | Azure for Students |
+| Grupo de recursos | `rg-lab-aula01` | `rg-lab-aula01` |
+| Nome | `vm-lab-aula01` | `vm-lab-aula01` |
+| Região | **East US 2** (`eastus2`) | **East US 2** (`eastus2`) |
+| Opções de disponibilidade | Nenhuma redundância | Nenhuma redundância |
+| Imagem | **Ubuntu Pro Server 26.04 LTS - ARM Gen2** | Ubuntu Server 24.04 LTS – Gen2 X64 |
+| Tamanho | **Standard_D2ps_v6** (2 vCPU, 8 GiB RAM) | Standard D2s v3 (2 vcpus, 8 GiB memória)
+| Autenticação | Chave pública SSH | Chave pública SSH |
+| Usuário | `azureuser` | `azureuser` |
+| Chave SSH | **Gerar novo par** (nome: `vm-lab-aula01-key`) | **Gerar novo par** (nome: `vm-lab-aula01-key`) |
 
 > ⚠️ **Atenção ao custo:** `Standard_D2s_v3` + disco Premium SSD **não é free-tier** (consome ~$0,10/h do seu crédito). Esta é a configuração de referência do lab — por isso a **regra de ouro** vale dobrado: destrua tudo (Atividade 6) assim que terminar.
 
@@ -208,7 +208,7 @@ Uma startup de e-commerce precisa hospedar seu backend:
 
 > **Atenção (no install):** Em vez de baixar a chave e configurar SSH no seu computador, vamos usar a chave SSH que o **Cloud Shell** já tem (gerada automaticamente). Para isso, no momento da criação da VM, você poderia ter escolhido "Usar chave existente" → cole o conteúdo de `~/.ssh/id_rsa.pub` do Cloud Shell. Como já criamos com chave nova, **vamos demonstrar conexão pelo próprio portal**.
 
-8. Após implantação (~2-3 min), na visão geral da VM, clique em **"Conectar"** → **"SSH via navegador"** (Azure Bastion não está disponível no free tier, então use o link **"Cloud Shell"**).
+8. Após a implantação (~2-3 min), na visão geral da VM, clique em **"Conectar"** → **"SSH via navegador"** (Azure Bastion não está disponível no free tier, então use o link **"Cloud Shell"**).
 
    Alternativa simples: copie a chave gerada como texto (link "Visualizar chave privada"), cole num arquivo `~/key.pem` no Cloud Shell:
 
