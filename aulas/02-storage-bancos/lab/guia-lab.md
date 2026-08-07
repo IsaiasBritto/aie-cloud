@@ -36,52 +36,176 @@ Se não fez algum desses passos, ver [pre-aula da Aula 1](../../01-fundamentos-i
 
 ---
 
-## Preparação (10 min — antes do L₁)
+## Preparação (15 min — antes do L₁)
 
-No Cloud Shell:
+> Esta seção substitui integralmente a antiga "Preparação", incluindo as
+> subseções *Provisionar tudo* e *Exportar outputs*.
+
+### Passo 0 — Descubra as regiões permitidas na SUA assinatura
+
+Contas Azure for Students têm uma policy que limita onde você pode criar
+recursos. **A lista muda de assinatura para assinatura** — não assuma a do
+colega nem a que está no `terraform.tfvars`.
 
 ```bash
-# Confirmar autenticação
 az account show --query "{nome:name, id:id}" -o table
 
-# Clonar o repositório da disciplina
-cd ~
-git clone https://github.com/isaiasbritto/aie-cloud.git
-cd aie-cloud
-
-# Atualizar o repositório (caso já tenha clonado antes)
-cd ~/aie-cloud
-git pull origin main
-
-# Ir para a pasta do Terraform da Aula 2
-cd aulas/02-storage-bancos/lab/terraform
-ls
-# Você verá: main.tf  variables.tf  outputs.tf  storage.tf  sql.tf  keyvault.tf  cosmos.tf  mongodb.tf  search.tf  README.md
+az policy assignment list \
+  --scope "/subscriptions/$(az account show --query id -o tsv)" \
+  --disable-scope-strict-match \
+  --query "[?contains(displayName,'regions')].parameters.listOfAllowedLocations.value" -o json
 ```
 
-Leia rapidamente cada `.tf` (5 min) — entenda o que vai ser provisionado. O [README da pasta](terraform/README.md) tem uma visão geral.
+Anote as regiões que apareceram — você vai usá-las nos Passos 3 e 5.
 
-### Provisionar tudo
+> **Por que isso vem primeiro:** sem esse passo, o `apply` roda por dois minutos
+> e falha com `RequestDisallowedByAzure`. Com ele, você descobre em cinco
+> segundos.
+
+---
+
+### Passo 1 — Clone e atualize o repositório
 
 ```bash
-# Gerar senha forte para o admin do SQL (não use senha trivial)
-SQL_PASSWORD=$(openssl rand -base64 24)
-echo "Senha gerada (guarde em local seguro): $SQL_PASSWORD"
+cd ~
+git clone https://github.com/isaiasbritto/aie-cloud.git 2>/dev/null || (cd ~/aie-cloud && git pull origin main)
 
-# Inicializar providers
-terraform init
-
-# Aplicar (~8 minutos — vá tomando café e relendo os .tf)
-terraform apply -auto-approve -var="sql_admin_password=$SQL_PASSWORD"
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+ls
 ```
 
-> **Lições neste passo:**
-> - Você gerou uma **senha forte com `openssl`** em vez de inventar — boa prática.
-> - O `-var=` passa a senha sem deixá-la em arquivo. Veremos no L₂ como armazená-la no Key Vault para uso pelos serviços.
+Você verá os arquivos `.tf`, o `terraform.tfvars` e o `setup-registry-aluno.sh`.
+Leia rapidamente cada `.tf` (5 min) para entender o que será provisionado.
 
-### Exportar outputs como variáveis de ambiente
+---
 
-Os scripts Python das atividades vão precisar desses valores:
+### Passo 2 — Instale as dependências Python
+
+O `~/.local` do Cloud Shell é apagado quando a sessão encerra, então isso
+precisa ser refeito a cada aula:
+
+```bash
+pip install --user -r ~/aie-cloud/aulas/02-storage-bancos/lab/scripts/requirements.txt
+
+python3 -c "import pyodbc; print(pyodbc.drivers())"
+```
+
+Precisa listar `ODBC Driver 18 for SQL Server`. O `ERROR` sobre
+`ansible-core requires packaging` que o pip mostra é ruído da imagem do Cloud
+Shell — pode ignorar.
+
+---
+
+### Passo 3 — Crie o registry das imagens do MongoDB
+
+Este script cria um Azure Container Registry **na sua própria assinatura** e
+importa as imagens do MongoDB para lá. Use uma das regiões do Passo 0:
+
+```bash
+LOCAL=eastus2 bash setup-registry-aluno.sh
+
+source ~/.qc-registry.env
+echo "registry=[$TF_VAR_registry_server]"
+```
+
+A última linha precisa mostrar um endereço terminado em `.azurecr.io`.
+
+> **Por que este passo existe:** o Azure Container Instances puxa a imagem do
+> Docker Hub usando IPs de saída compartilhados da região, e o Docker Hub
+> limita pulls anônimos a 100 por 6 horas **por IP**. Com a turma rodando junto,
+> esse limite estoura e o `apply` falha com `409 RegistryErrorResponse`. Com um
+> registry próprio, o pull sai do backbone da Azure e o problema desaparece.
+>
+> O script é **idempotente**: o nome do registry é derivado do ID da sua
+> assinatura, então rodar de novo reaproveita o que já existe. Se a sessão do
+> Cloud Shell cair, basta repetir o `source`.
+
+---
+
+### Passo 4 — Defina a senha do SQL
+
+```bash
+export TF_VAR_sql_admin_password="$(openssl rand -base64 24)"
+echo "Senha gerada (anote): $TF_VAR_sql_admin_password"
+```
+
+**Anote o valor.** Se a sessão cair, você precisa exportar exatamente a mesma
+senha — caso contrário o Terraform troca a senha do servidor no meio do lab e a
+connection string do Key Vault fica inconsistente.
+
+> **Por que `TF_VAR_` e não `-var=`:** o Terraform lê variáveis com esse prefixo
+> automaticamente, então nenhum comando seguinte precisa repetir a senha. Menos
+> digitação e menos chance de aplicar com valor diferente do anterior.
+
+Confirme que nada ficou vazio antes de seguir:
+
+```bash
+echo "senha=${#TF_VAR_sql_admin_password}  registry=[$TF_VAR_registry_server]"
+```
+
+---
+
+### Passo 5 — Ajuste as regiões e provisione
+
+O `terraform.tfvars` traz regiões validadas em uma assinatura específica.
+Compare com a sua lista do Passo 0:
+
+```bash
+cat terraform.tfvars
+```
+
+Se alguma não estiver na sua lista, sobrescreva no comando sem editar o arquivo.
+
+```bash
+terraform init
+terraform plan
+```
+
+**Leia o plan antes de aplicar.** Confira três coisas:
+
+- `Plan: 24 to add, 0 to change, 0 to destroy`
+- as imagens do MongoDB começam com o endereço do seu registry, não com `mongo:7.0` puro
+- as regiões de cada recurso estão dentro da sua lista de permitidas
+
+```bash
+terraform apply -auto-approve
+```
+
+Leva de 6 a 8 minutos. Aproveite para reler os `.tf`.
+
+> **Não pressione `Ctrl+C` nem `Ctrl+Z` durante o apply.** Interromper deixa
+> recursos pela metade — uma conta Cosmos em estado `Failed`, por exemplo,
+> reserva o nome e impede recriar.
+
+Se algum recurso falhar por região, teste outra da sua lista sem editar arquivo:
+
+```bash
+terraform apply -auto-approve -var="location_search=<outra-regiao>"
+```
+
+---
+
+### Passo 6 — Habilite o semantic ranker do AI Search
+
+O tier `free` suporta busca semântica (1000 queries/mês), mas o Terraform não
+consegue declarar isso: o provider recusa o argumento quando o SKU é `free`.
+
+```bash
+az search service update \
+  --name $(terraform output -raw search_service_name) \
+  --resource-group $(terraform output -raw resource_group_name) \
+  --semantic-search free
+```
+
+> **Sem esse passo**, o script da Atividade 3 funciona na busca por keyword e
+> falha na busca semântica com `FeatureNotSupportedInService` — o que é pior que
+> falhar direto, porque parece que está tudo certo.
+
+---
+
+### Passo 7 — Exporte os outputs
+
+Os scripts Python das atividades precisam destes valores:
 
 ```bash
 export STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
@@ -90,12 +214,30 @@ export COSMOS_ENDPOINT=$(terraform output -raw cosmos_endpoint)
 export SEARCH_ENDPOINT=$(terraform output -raw search_endpoint)
 export MONGO_IP=$(terraform output -raw mongodb_public_ip)
 
-echo "Storage: $STORAGE_ACCOUNT_NAME"
-echo "Key Vault: $KEY_VAULT_NAME"
-echo "Cosmos: $COSMOS_ENDPOINT"
-echo "Search: $SEARCH_ENDPOINT"
-echo "MongoDB: $MONGO_IP:27017  |  Mongo Express: $(terraform output -raw mongo_express_url)"
+echo "Storage:  $STORAGE_ACCOUNT_NAME"
+echo "KeyVault: $KEY_VAULT_NAME"
+echo "Cosmos:   $COSMOS_ENDPOINT"
+echo "Search:   $SEARCH_ENDPOINT"
+echo "MongoDB:  $MONGO_IP:27017  |  Mongo Express: $(terraform output -raw mongo_express_url)"
 ```
+
+---
+
+### Se a sessão do Cloud Shell cair
+
+A infraestrutura continua no ar. Refaça apenas:
+
+```bash
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+
+pip install --user -r ../scripts/requirements.txt   # Passo 2
+source ~/.qc-registry.env                           # Passo 3
+export TF_VAR_sql_admin_password="<a senha anotada>" # Passo 4
+# e repita o Passo 7
+```
+
+Se o `~/.qc-registry.env` também tiver sumido, rode `bash setup-registry-aluno.sh`
+outra vez — ele reaproveita o registry existente e leva poucos segundos.
 
 ---
 
