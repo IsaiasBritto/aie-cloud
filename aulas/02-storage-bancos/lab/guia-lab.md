@@ -11,7 +11,7 @@
 Este lab é intercalado com a teoria. Cada atividade corresponde a um momento do cronograma.
 
 ```
-Preparação — terraform apply de TODA a camada de dados            ~10 min
+Preparação — detectar regiões, registry e terraform apply         ~15 min
 Atividade 1 — Storage Account + upload de CSV ao Blob              ~15 min  (L₁)
 Atividade 2 — Azure SQL + Key Vault + Python (T_PRODUTOS)          ~30 min  (L₂)
 Atividade 3 — Cosmos DB / MongoDB + Azure AI Search                ~55 min  (L₃)
@@ -38,29 +38,36 @@ Se não fez algum desses passos, ver [pre-aula da Aula 1](../../01-fundamentos-i
 
 ## Preparação (15 min — antes do L₁)
 
-> Esta seção substitui integralmente a antiga "Preparação", incluindo as
-> subseções *Provisionar tudo* e *Exportar outputs*.
-
-### Passo 0 — Descubra as regiões permitidas na SUA assinatura
+### Passo 0 — Detecte as regiões válidas para a SUA assinatura
 
 Contas Azure for Students têm uma policy que limita onde você pode criar
-recursos. **A lista muda de assinatura para assinatura** — não assuma a do
-colega nem a que está no `terraform.tfvars`.
+recursos — e **a lista muda de assinatura para assinatura**. Pior: estar na
+lista de permitidas não garante que o serviço provisiona ali, porque cota de
+SKU free varia ao longo do dia.
+
+O script sonda cada serviço criando e apagando um recurso de teste, e escreve
+o `terraform.tfvars` com o que realmente funcionou:
 
 ```bash
-az account show --query "{nome:name, id:id}" -o table
-
-az policy assignment list \
-  --scope "/subscriptions/$(az account show --query id -o tsv)" \
-  --disable-scope-strict-match \
-  --query "[?contains(displayName,'regions')].parameters.listOfAllowedLocations.value" -o json
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+bash detectar-regioes.sh
 ```
 
-Anote as regiões que apareceram — você vai usá-las nos Passos 3 e 5.
+Leva cerca de 3 minutos. No final, confira o resultado:
+
+```bash
+grep "^location" terraform.tfvars
+```
 
 > **Por que isso vem primeiro:** sem esse passo, o `apply` roda por dois minutos
-> e falha com `RequestDisallowedByAzure`. Com ele, você descobre em cinco
-> segundos.
+> e falha com `RequestDisallowedByAzure`. Três erros diferentes podem aparecer,
+> e a ação muda para cada um:
+>
+> | Código | Mensagem | Significa | Ação |
+> |---|---|---|---|
+> | 403 | `RequestDisallowedByAzure` | região fora da policy | trocar de região |
+> | 403 | `ProvisioningDisabled` | serviço bloqueado nessa região | trocar de região |
+> | 400 | `InsufficientResourcesAvailable` | região ok, sem cota agora | trocar de região ou tentar mais tarde |
 
 ---
 
@@ -74,8 +81,7 @@ cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
 ls
 ```
 
-Você verá os arquivos `.tf`, o `terraform.tfvars` e o `setup-registry-aluno.sh`.
-Leia rapidamente cada `.tf` (5 min) para entender o que será provisionado.
+Leia rapidamente cada `.tf` (5 min) — entenda o que será provisionado.
 
 ---
 
@@ -85,7 +91,7 @@ O `~/.local` do Cloud Shell é apagado quando a sessão encerra, então isso
 precisa ser refeito a cada aula:
 
 ```bash
-pip install --user -r ~/aie-cloud/aulas/02-storage-bancos/lab/scripts/requirements.txt
+pip install --user -r ../scripts/requirements.txt
 
 python3 -c "import pyodbc; print(pyodbc.drivers())"
 ```
@@ -99,26 +105,25 @@ Shell — pode ignorar.
 ### Passo 3 — Crie o registry das imagens do MongoDB
 
 Este script cria um Azure Container Registry **na sua própria assinatura** e
-importa as imagens do MongoDB para lá. Use uma das regiões do Passo 0:
+importa as imagens do MongoDB para lá:
 
 ```bash
-LOCAL=eastus2 bash setup-registry-aluno.sh
-
+bash setup-registry-aluno.sh
 source ~/.qc-registry.env
+
 echo "registry=[$TF_VAR_registry_server]"
 ```
 
 A última linha precisa mostrar um endereço terminado em `.azurecr.io`.
 
 > **Por que este passo existe:** o Azure Container Instances puxa a imagem do
-> Docker Hub usando IPs de saída compartilhados da região, e o Docker Hub
-> limita pulls anônimos a 100 por 6 horas **por IP**. Com a turma rodando junto,
-> esse limite estoura e o `apply` falha com `409 RegistryErrorResponse`. Com um
+> Docker Hub usando IPs de saída compartilhados da região, e o Docker Hub limita
+> pulls anônimos a 100 por 6 horas **por IP**. Com a turma rodando junto, esse
+> limite estoura e o `apply` falha com `409 RegistryErrorResponse`. Com um
 > registry próprio, o pull sai do backbone da Azure e o problema desaparece.
 >
-> O script é **idempotente**: o nome do registry é derivado do ID da sua
-> assinatura, então rodar de novo reaproveita o que já existe. Se a sessão do
-> Cloud Shell cair, basta repetir o `source`.
+> O script é **idempotente**: o nome do registry vem do ID da sua assinatura,
+> então rodar de novo reaproveita o que já existe.
 
 ---
 
@@ -145,16 +150,7 @@ echo "senha=${#TF_VAR_sql_admin_password}  registry=[$TF_VAR_registry_server]"
 
 ---
 
-### Passo 5 — Ajuste as regiões e provisione
-
-O `terraform.tfvars` traz regiões validadas em uma assinatura específica.
-Compare com a sua lista do Passo 0:
-
-```bash
-cat terraform.tfvars
-```
-
-Se alguma não estiver na sua lista, sobrescreva no comando sem editar o arquivo.
+### Passo 5 — Provisione
 
 ```bash
 terraform init
@@ -165,23 +161,24 @@ terraform plan
 
 - `Plan: 24 to add, 0 to change, 0 to destroy`
 - as imagens do MongoDB começam com o endereço do seu registry, não com `mongo:7.0` puro
-- as regiões de cada recurso estão dentro da sua lista de permitidas
+- as regiões batem com o que o Passo 0 detectou
 
 ```bash
 terraform apply -auto-approve
 ```
 
-Leva de 6 a 8 minutos. Aproveite para reler os `.tf`.
+Leva de 6 a 8 minutos — aproveite para reler os `.tf`.
 
 > **Não pressione `Ctrl+C` nem `Ctrl+Z` durante o apply.** Interromper deixa
-> recursos pela metade — uma conta Cosmos em estado `Failed`, por exemplo,
-> reserva o nome e impede recriar.
+> recursos pela metade: uma conta Cosmos em estado `Failed`, por exemplo,
+> reserva o nome e impede recriar. Se você parou sem querer, veja o
+> troubleshooting.
 
-Se algum recurso falhar por região, teste outra da sua lista sem editar arquivo:
+**Lições neste passo:**
 
-```bash
-terraform apply -auto-approve -var="location_search=<outra-regiao>"
-```
+- Você gerou uma **senha forte com `openssl`** em vez de inventar.
+- A senha nunca tocou um arquivo — foi por variável de ambiente. No L₂ veremos
+  como o Key Vault assume esse papel para os serviços.
 
 ---
 
@@ -198,8 +195,8 @@ az search service update \
 ```
 
 > **Sem esse passo**, o script da Atividade 3 funciona na busca por keyword e
-> falha na busca semântica com `FeatureNotSupportedInService` — o que é pior que
-> falhar direto, porque parece que está tudo certo.
+> falha na busca semântica com `FeatureNotSupportedInService` — pior que falhar
+> direto, porque parece que está tudo certo.
 
 ---
 
@@ -223,21 +220,18 @@ echo "MongoDB:  $MONGO_IP:27017  |  Mongo Express: $(terraform output -raw mongo
 
 ---
 
-### Se a sessão do Cloud Shell cair
-
-A infraestrutura continua no ar. Refaça apenas:
-
-```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-
-pip install --user -r ../scripts/requirements.txt   # Passo 2
-source ~/.qc-registry.env                           # Passo 3
-export TF_VAR_sql_admin_password="<a senha anotada>" # Passo 4
-# e repita o Passo 7
-```
-
-Se o `~/.qc-registry.env` também tiver sumido, rode `bash setup-registry-aluno.sh`
-outra vez — ele reaproveita o registry existente e leva poucos segundos.
+> ### Se a sessão do Cloud Shell cair
+>
+> A infraestrutura continua no ar. Refaça apenas:
+>
+> ```bash
+> cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+> pip install --user -r ../scripts/requirements.txt      # Passo 2
+> source ~/.qc-registry.env                              # Passo 3
+> export TF_VAR_sql_admin_password="<a senha anotada>"   # Passo 4
+> ```
+>
+> E repita o Passo 7. O Passo 5 não precisa ser refeito.
 
 ---
 
@@ -304,13 +298,10 @@ Abra [sql.tf](terraform/sql.tf) e [keyvault.tf](terraform/keyvault.tf). Observe:
 
 > **Por que `time_sleep` antes do segredo?** RBAC tem ~30-60s de propagação. Sem o sleep, o `apply` falha porque a role ainda não está ativa quando o Terraform tenta criar o segredo.
 
-### Passo 2 — Instalar dependências Python
+### Passo 2 — Dependências Python
 
-```bash
-pip install --user -r ../scripts/requirements.txt
-```
-
-> No Cloud Shell, `pip install --user` vai para `~/.local` (storage persistente — não suja a máquina do aluno).
+Já instaladas na Preparação (Passo 2). Se a sessão do Cloud Shell caiu desde
+então, o `~/.local` foi apagado — refaça aquele passo antes de continuar.
 
 ### Passo 3 — Rodar o script
 
@@ -449,7 +440,7 @@ Abra [search.tf](terraform/search.tf):
 
 - **`azurerm_search_service.qc`** — Search service SKU **free** (3 índices, 50 MB), com **autenticação AAD/RBAC habilitada no data-plane** (`authentication_failure_mode`). Sem isso, o `DefaultAzureCredential` dos scripts levaria **403 Forbidden** mesmo com as roles.
 - **2 role assignments**: `Search Service Contributor` (gerencia índices) e `Search Index Data Contributor` (indexa/consulta documentos).
-- **`azapi_update_resource.search_semantic`** — habilita o **semantic ranker** (plano free, 1000 queries/mês). É feito via `azapi` porque o provider azurerm 3.x recusa esse ajuste quando o SKU é `free`, embora o Azure suporte. Sem ele, a busca semântica falharia com `Semantic search is not enabled for this service`.
+- **Semantic ranker** — habilitado **fora do Terraform**, no Passo 6 da Preparação. O provider `azurerm` recusa `semantic_search_sku` quando o SKU é `free`, e forçar via `azapi` não funciona: a Azure aceita a chamada e reverte para `disabled`, então o `plan` nunca converge. Por isso o `az search service update` como passo separado.
 
 > **Atenção:** AI Search Free também é **1 por subscription**. Mesma lógica do Cosmos.
 
@@ -458,22 +449,17 @@ Abra [search.tf](terraform/search.tf):
 [indexar_produtos.py](scripts/indexar_produtos.py) cria o índice `produtos-index` com **analyzer em português** e configuração de semantic ranking, depois indexa os 20 produtos.
 
 ```bash
-pip install --user azure-search-documents
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 
-# Aguardar role propagar (~30s desde o terraform apply)
+# Aguardar a role RBAC propagar (~30s desde o terraform apply)
 sleep 30
 
-O tier `free` suporta semantic search (1000 queries/mês), mas o Terraform não
-consegue declarar isso — o provider recusa o argumento quando o SKU é `free`.
-Rode uma vez, depois do apply:
+python3 indexar_produtos.py
+```
 
-az search service update \
-  --name $(terraform output -raw search_service_name) \
-  --resource-group $(terraform output -raw resource_group_name) \
-  --semantic-search free
-
-Sem esse passo, `indexar_produtos.py` funciona na busca por keyword e falha na
-busca semântica com `FeatureNotSupportedInService`.
+> **Se aparecer `Semantic search is not enabled for this service`:** o Passo 6
+> da Preparação não foi executado. Rode-o e tente de novo — a busca por keyword
+> funciona sem ele, então o erro só aparece na segunda metade do script.
 
 Após a execução do script, podemos seguir com o exercício:
 
@@ -510,12 +496,21 @@ terraform destroy -auto-approve -var="sql_admin_password=$SQL_PASSWORD"
 
 Tempo: ~5 minutos.
 
-### Passo 2 — Verificar custo zero
+### Passo 2 — Remova o registry
+
+O ACR fica num resource group separado, então o `terraform destroy` não o
+alcança:
+
+```bash
+az group delete -n rg-qc-registry --yes --no-wait
+```
+
+### Passo 3 — Verificar custo zero
 
 1. Portal → **Cost Management** → **Análise de custo** → filtrar por hoje
 2. Total deve estar próximo de $0 (serverless/auto-pause + Search free + duração curta do lab)
 
-### Passo 3 — Commitar progresso no seu fork
+### Passo 4 — Commitar progresso no seu fork
 
 No seu fork (não no repo `aie-cloud` clonado direto):
 
@@ -560,7 +555,9 @@ Esses recursos serão consumidos por:
 
 | Problema | Causa | Solução |
 |----------|-------|---------|
-| `RequestDisallowedByAzure` / "best available regions" no apply | A política da conta Azure for Students bloqueia a região (ex.: `brazilsouth`) para esses recursos | Rode com uma região permitida: `terraform apply -var="location=eastus2"`. Para descobrir as permitidas, abra no portal a criação de um Storage Account e veja as regiões do dropdown |
+| `RequestDisallowedByAzure` (403) | A região não está na policy da sua assinatura | Rode `bash detectar-regioes.sh` — ele sonda e regrava o `terraform.tfvars`. A lista de permitidas muda por assinatura |
+| `ProvisioningDisabled` (403) | Região permitida, mas o serviço está bloqueado nela para a sua assinatura | Outra região. Não adianta esperar — é bloqueio, não capacidade |
+| `InsufficientResourcesAvailable` (400) | Região permitida, sem cota do SKU free no momento | Outra região, ou tente mais tarde. Cota de free varia ao longo do dia |
 | Cosmos: "Free tier has already been applied to another account" | Já existe (ou existiu) outra conta Cosmos free-tier na assinatura | Já tratado: o lab usa serverless sem free-tier por padrão. Se você ligou com `-var="cosmos_free_tier=true"`, volte para `false` |
 | AI Search: limite de SKU Free atingido | 1 search service Free por subscription | Destruir o existente em outra subscription, ou usar SKU `basic` (~$60/mês — evite) |
 | Python: "Login failed for user 'sqladminqc'" | Senha do shell tinha `$` ou aspas — interpretado errado | Use `openssl rand -base64 24` (não contém caracteres problemáticos) ou guarde em variável escapada |
@@ -570,12 +567,19 @@ Esses recursos serão consumidos por:
 | Cosmos: "Request is unauthorized" / `Forbidden` | Role data-plane ainda propagando (já é criada pelo Terraform em `cosmos.tf`) | Aguardar ~1 min e rodar de novo. Conferir: `az cosmosdb sql role assignment list --account-name <cosmos> -g <rg> -o table` |
 | Cosmos: `ClientAuthenticationError ... AudienceNotSupported` no Cloud Shell | O Cloud Shell não emite token AAD para a audience de data-plane do Cosmos (nenhuma credencial consegue) | Já tratado: o `popular_reviews.py` autentica por **key** lida do Key Vault (`cosmos-primary-key`). Afeta só o Cosmos (KV/Blob/Search têm audience suportada) |
 | AI Search: `Operation returned an invalid status 'Forbidden'` ao indexar | Serviço aceitava só API key no data-plane (token AAD recusado) | Já resolvido no `search.tf` (`authentication_failure_mode`). Em serviço criado antes do fix: `terraform apply` de novo |
-| AI Search: `Semantic search is not enabled for this service` | Semantic ranker não habilitado | Já resolvido via `azapi_update_resource.search_semantic` em `search.tf`. Em serviço antigo: `terraform apply` de novo (ou `az search service update --name <svc> -g <rg> --semantic-search free`) |
+| AI Search: `Semantic search is not enabled` / `FeatureNotSupportedInService` | O Passo 6 da Preparação não foi executado. O provider recusa `semantic_search_sku` quando o SKU é `free`, então isso só é habilitável via CLI depois do apply | `az search service update --name $(terraform output -raw search_service_name) -g $(terraform output -raw resource_group_name) --semantic-search free` |
 | `terraform destroy` falha em Key Vault | Purge protection ou soft-delete | Confirmar `purge_protection_enabled = false` no `keyvault.tf` (já está) |
 | `AuthorizationPermissionMismatch` no upload Blob | Sem role data plane no Storage | Conceder `Storage Blob Data Contributor` (ver Passo 2 da L₁) |
 | MongoDB: `ServerSelectionTimeoutError` após 100s | ACI ainda inicializando | Aguardar 1 min e rodar `python3 popular_reviews_mongo.py` de novo |
 | MongoDB: `Authentication failed` | `MONGO_IP` não exportado ou IP errado | `echo $MONGO_IP` — se vazio: `export MONGO_IP=$(terraform output -raw mongodb_public_ip)` |
 | Mongo Express: página não carrega | ACI ainda subindo ou porta 8081 | Aguardar 2 min; confirmar URL: `terraform output mongo_express_url` |
+| ACI: `409 RegistryErrorResponse` do `index.docker.io` | Rate limit do Docker Hub no IP de saída da região (100 pulls/6h, compartilhado) | Rode o Passo 3 da Preparação e `source ~/.qc-registry.env`. Confirme com `echo $TF_VAR_registry_server` |
+| ACI: `InaccessibleImage` | Credencial do registry errada ou truncada | `echo ${#TF_VAR_registry_password}` — a senha do ACR tem ~84 caracteres. Se estiver menor, refaça o `source ~/.qc-registry.env` |
+| `Error acquiring the state lock` | Um apply anterior morreu segurando o lock | Antes de destravar, veja se ele vive: `ps aux \| grep [t]erraform`. STAT `T` = parado por Ctrl+Z, use `fg`. Nada listado: `terraform force-unlock <ID>`. **Nunca destrave com o processo vivo** |
+| `already exists - needs to be imported` | Recurso criado por um apply que morreu antes de gravar no state | Veja o estado: `az resource show --ids "<ID>" --query properties.provisioningState`. Se `Failed`, apague com `az resource delete --ids "<ID>"`. Se `Succeeded`, adote com `terraform import` |
+| `IM002 Data source name not found` no Python | Connection string sem `DRIVER={...}` | O `keyvault.tf` atual já grava com o driver. Se o segredo é antigo, `terraform apply` regrava |
+| `terraform destroy`: "Resource Group still contains Resources" | Algo foi criado no RG por fora do Terraform | `az resource list -g <rg> -o table` e remova. **Não** desative `prevent_deletion_if_contains_resources` |
+| Senha do SQL vazia / `administrator_login_password -> null` no plan | `$TF_VAR_sql_admin_password` perdida ao reconectar o Cloud Shell | `echo ${#TF_VAR_sql_admin_password}` — se for 0, exporte a senha anotada e reaplique |
 
 ---
 
