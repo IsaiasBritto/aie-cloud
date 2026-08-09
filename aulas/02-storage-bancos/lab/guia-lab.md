@@ -29,7 +29,7 @@ A camada de dados completa da QC é uma **declaração única** — provisionar 
 ## Pré-requisitos
 
 - ✅ Aula 1 concluída (Cloud Shell funcional, Terraform rodando, conta Azure ativa)
-- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/elthonf/aie-cloud.git`)
+- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/IsaiasBritto/aie-cloud.git`)
 - ✅ Esboço da arquitetura QC do grupo commitado no fork
 
 Se não fez algum desses passos, ver [pre-aula da Aula 1](../../01-fundamentos-iac/pre-aula.md) e [pos-aula-git](../../01-fundamentos-iac/pos-aula-git.md).
