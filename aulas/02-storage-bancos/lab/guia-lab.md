@@ -390,6 +390,7 @@ Abra [mongodb.tf](terraform/mongodb.tf):
 #### Passo 2 — Aguardar o container estar pronto (~2 min)
 
 ```bash
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
 echo "MongoDB  : $MONGO_IP:27017"
 echo "Mongo Web: $(terraform output -raw mongo_express_url)"
 # Abrir a URL do Mongo Express no browser — se carregar, o container está pronto
