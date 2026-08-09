@@ -489,6 +489,7 @@ O script já demonstra 3 tipos de busca:
 Para fazer **vector search verdadeira** seria preciso gerar embeddings dos textos — chamando Azure OpenAI ou um modelo de embedding.
 **Veja Exercício 3.1 do [exercicios.md](../exercicios.md)** se quiser implementar vector search real.
 
+```
 ---
 
 ## Wrap-up — Destroy e Custo Zero (10 min)
