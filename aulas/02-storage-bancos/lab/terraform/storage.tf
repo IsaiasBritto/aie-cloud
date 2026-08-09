@@ -50,3 +50,14 @@ resource "azurerm_storage_management_policy" "lifecycle" {
     }
   }
 }
+
+# Permissao de DATA PLANE no Storage.
+# Ser Owner da assinatura da acesso ao recurso (control plane), mas NAO aos
+# blobs dentro dele. Sem esta role, qualquer leitura/escrita de blob falha com
+# AuthorizationPermissionMismatch - inclusive o upload do CSV na Atividade 1 e
+# o download em indexar_produtos.py.
+resource "azurerm_role_assignment" "storage_blob_data" {
+  scope                = azurerm_storage_account.qc.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
