@@ -29,7 +29,7 @@ A camada de dados completa da QC é uma **declaração única** — provisionar 
 ## Pré-requisitos
 
 - ✅ Aula 1 concluída (Cloud Shell funcional, Terraform rodando, conta Azure ativa)
-- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/IsaiasBritto/aie-cloud.git`)
+- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/elthonf/aie-cloud.git`)
 - ✅ Esboço da arquitetura QC do grupo commitado no fork
 
 Se não fez algum desses passos, ver [pre-aula da Aula 1](../../01-fundamentos-iac/pre-aula.md) e [pos-aula-git](../../01-fundamentos-iac/pos-aula-git.md).
@@ -159,7 +159,7 @@ terraform plan
 
 **Leia o plan antes de aplicar.** Confira três coisas:
 
-- `Plan: 24 to add, 0 to change, 0 to destroy`
+- `Plan: 25 to add, 0 to change, 0 to destroy`
 - as imagens do MongoDB começam com o endereço do seu registry, não com `mongo:7.0` puro
 - as regiões batem com o que o Passo 0 detectou
 
@@ -168,6 +168,13 @@ terraform apply -auto-approve
 ```
 
 Leva de 6 a 8 minutos — aproveite para reler os `.tf`.
+
+Perto do fim você verá o semantic ranker sendo habilitado:
+
+```
+terraform_data.search_semantic (local-exec): Habilitando semantic ranker...
+terraform_data.search_semantic (local-exec): Semantic ranker habilitado.
+```
 
 > **Não pressione `Ctrl+C` nem `Ctrl+Z` durante o apply.** Interromper deixa
 > recursos pela metade: uma conta Cosmos em estado `Failed`, por exemplo,
@@ -182,25 +189,7 @@ Leva de 6 a 8 minutos — aproveite para reler os `.tf`.
 
 ---
 
-### Passo 6 — Habilite o semantic ranker do AI Search
-
-O tier `free` suporta busca semântica (1000 queries/mês), mas o Terraform não
-consegue declarar isso: o provider recusa o argumento quando o SKU é `free`.
-
-```bash
-az search service update \
-  --name $(terraform output -raw search_service_name) \
-  --resource-group $(terraform output -raw resource_group_name) \
-  --semantic-search free
-```
-
-> **Sem esse passo**, o script da Atividade 3 funciona na busca por keyword e
-> falha na busca semântica com `FeatureNotSupportedInService` — pior que falhar
-> direto, porque parece que está tudo certo.
-
----
-
-### Passo 7 — Exporte os outputs
+### Passo 6 — Exporte os outputs
 
 Os scripts Python das atividades precisam destes valores:
 
@@ -231,7 +220,7 @@ echo "MongoDB:  $MONGO_IP:27017  |  Mongo Express: $(terraform output -raw mongo
 > export TF_VAR_sql_admin_password="<a senha anotada>"   # Passo 4
 > ```
 >
-> E repita o Passo 7. O Passo 5 não precisa ser refeito.
+> E repita o Passo 6. O Passo 5 não precisa ser refeito.
 
 ---
 
@@ -440,7 +429,11 @@ Abra [search.tf](terraform/search.tf):
 
 - **`azurerm_search_service.qc`** — Search service SKU **free** (3 índices, 50 MB), com **autenticação AAD/RBAC habilitada no data-plane** (`authentication_failure_mode`). Sem isso, o `DefaultAzureCredential` dos scripts levaria **403 Forbidden** mesmo com as roles.
 - **2 role assignments**: `Search Service Contributor` (gerencia índices) e `Search Index Data Contributor` (indexa/consulta documentos).
-- **Semantic ranker** — habilitado **fora do Terraform**, no Passo 6 da Preparação. O provider `azurerm` recusa `semantic_search_sku` quando o SKU é `free`, e forçar via `azapi` não funciona: a Azure aceita a chamada e reverte para `disabled`, então o `plan` nunca converge. Por isso o `az search service update` como passo separado.
+- **`terraform_data.search_semantic`** — habilita o **semantic ranker** (plano free, 1000 queries/mês) chamando `az search service update` via `local-exec`, logo após o search service subir.
+
+> **Por que um `provisioner` e não um recurso declarativo?** O provider `azurerm` recusa `semantic_search_sku` quando o SKU é `free`, e forçar via `azapi` não funciona — a Azure aceita a chamada e reverte para `disabled`, então o `plan` nunca converge. Sem alternativa declarativa, o `provisioner` é o escape hatch legítimo.
+>
+> O preço: o comando roda **na máquina que executa o Terraform** (precisa de `az` autenticado), e o Terraform **não sabe o estado real** — se alguém desabilitar o semantic pelo portal, nenhum `plan` vai acusar. É por isso que a HashiCorp recomenda evitar `provisioner` sempre que houver outro caminho.
 
 > **Atenção:** AI Search Free também é **1 por subscription**. Mesma lógica do Cosmos.
 
@@ -457,9 +450,14 @@ sleep 30
 python3 indexar_produtos.py
 ```
 
-> **Se aparecer `Semantic search is not enabled for this service`:** o Passo 6
-> da Preparação não foi executado. Rode-o e tente de novo — a busca por keyword
-> funciona sem ele, então o erro só aparece na segunda metade do script.
+> **Se aparecer `Semantic search is not enabled for this service`:** o
+> `local-exec` do `terraform_data.search_semantic` não rodou ou falhou. Confira
+> o estado real e habilite na mão se preciso:
+>
+> ```bash
+> az search service show --name $(terraform output -raw search_service_name) \
+>   -g $(terraform output -raw resource_group_name) --query semanticSearch -o tsv
+> ```
 
 Após a execução do script, podemos seguir com o exercício:
 
@@ -567,7 +565,7 @@ Esses recursos serão consumidos por:
 | Cosmos: "Request is unauthorized" / `Forbidden` | Role data-plane ainda propagando (já é criada pelo Terraform em `cosmos.tf`) | Aguardar ~1 min e rodar de novo. Conferir: `az cosmosdb sql role assignment list --account-name <cosmos> -g <rg> -o table` |
 | Cosmos: `ClientAuthenticationError ... AudienceNotSupported` no Cloud Shell | O Cloud Shell não emite token AAD para a audience de data-plane do Cosmos (nenhuma credencial consegue) | Já tratado: o `popular_reviews.py` autentica por **key** lida do Key Vault (`cosmos-primary-key`). Afeta só o Cosmos (KV/Blob/Search têm audience suportada) |
 | AI Search: `Operation returned an invalid status 'Forbidden'` ao indexar | Serviço aceitava só API key no data-plane (token AAD recusado) | Já resolvido no `search.tf` (`authentication_failure_mode`). Em serviço criado antes do fix: `terraform apply` de novo |
-| AI Search: `Semantic search is not enabled` / `FeatureNotSupportedInService` | O Passo 6 da Preparação não foi executado. O provider recusa `semantic_search_sku` quando o SKU é `free`, então isso só é habilitável via CLI depois do apply | `az search service update --name $(terraform output -raw search_service_name) -g $(terraform output -raw resource_group_name) --semantic-search free` |
+| AI Search: `Semantic search is not enabled` / `FeatureNotSupportedInService` | O `local-exec` do `terraform_data.search_semantic` falhou (Azure CLI ausente ou sem autenticação na máquina que rodou o Terraform) | Habilite na mão: `az search service update --name $(terraform output -raw search_service_name) -g $(terraform output -raw resource_group_name) --semantic-search free` |
 | `terraform destroy` falha em Key Vault | Purge protection ou soft-delete | Confirmar `purge_protection_enabled = false` no `keyvault.tf` (já está) |
 | `AuthorizationPermissionMismatch` no upload Blob | Sem role data plane no Storage | Conceder `Storage Blob Data Contributor` (ver Passo 2 da L₁) |
 | MongoDB: `ServerSelectionTimeoutError` após 100s | ACI ainda inicializando | Aguardar 1 min e rodar `python3 popular_reviews_mongo.py` de novo |
