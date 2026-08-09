@@ -475,8 +475,13 @@ O script já demonstra 3 tipos de busca:
 
 1. Portal → `srch-qc-xxxxxx` → **Search Explorer**
 2. Testar query: `cadeira ergonomica` — observar resultados
-3. Mudar **Query type** para **Semantic** → testar `produto para dor nas costas`
-4. Observar o ranking semântico
+3. Abrir **Opções de consulta** (engrenagem acima do campo de busca) e verificar
+   que o **Classificador semântico** está **Ativado** e que há uma **Configuração
+   semântica** selecionada (`produtos-semantic-config`)
+4. Buscar `produto para dor nas costas` e comparar os campos do JSON:
+   - `@search.score` — relevância por palavra-chave (BM25)
+   - `@search.rerankerScore` — relevância semântica, de 0 a 4
+   - `@search.captions` — trecho que o modelo considerou responder à pergunta
 
 **✅ Checkpoint L₃-B:** Você consegue executar buscas semânticas via Python e via Portal?
 
