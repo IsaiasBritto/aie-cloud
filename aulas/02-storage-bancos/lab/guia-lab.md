@@ -485,7 +485,9 @@ O script já demonstra 3 tipos de busca:
 
 **✅ Checkpoint L₃-B:** Você consegue executar buscas semânticas via Python e via Portal?
 
-> **Nota importante:** Aqui usamos **semantic search** (ranking inteligente baseado nos modelos da Microsoft). Para fazer **vector search verdadeira** seria preciso gerar embeddings dos textos — chamando Azure OpenAI ou um modelo de embedding. **Veja Exercício 3.1 do [exercicios.md](../exercicios.md)** se quiser implementar vector search real.
+**Nota importante:** Aqui usamos **semantic search** (ranking inteligente baseado nos modelos da Microsoft).
+Para fazer **vector search verdadeira** seria preciso gerar embeddings dos textos — chamando Azure OpenAI ou um modelo de embedding.
+**Veja Exercício 3.1 do [exercicios.md](../exercicios.md)** se quiser implementar vector search real.
 
 ---
 
