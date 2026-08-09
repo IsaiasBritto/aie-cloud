@@ -36,16 +36,20 @@ echo "==> Registry:   $ACR  (regiao: $LOCAL)"
 echo
 
 # --- valida a regiao contra a policy da assinatura --------------------------
-PERMITIDAS="$(az policy assignment list \
-  --scope "/subscriptions/$SUB_ID" --disable-scope-strict-match \
-  --query "[?contains(displayName,'regions')].parameters.listOfAllowedLocations.value" \
-  -o tsv 2>/dev/null || true)"
+# ATENCAO: "az ... -o tsv" devolve o array numa UNICA linha separada por TAB.
+# O "tr" abaixo quebra em uma regiao por linha.
+mapfile -t PERMITIDAS < <(
+  az policy assignment list \
+    --scope "/subscriptions/$SUB_ID" --disable-scope-strict-match \
+    --query "[?contains(displayName,'regions')].parameters.listOfAllowedLocations.value" \
+    -o tsv 2>/dev/null | tr '\t' '\n' | tr -d '\r' | sed '/^[[:space:]]*$/d'
+)
 
-if [ -n "$PERMITIDAS" ] && ! echo "$PERMITIDAS" | grep -qw "$LOCAL"; then
+if [ ${#PERMITIDAS[@]} -gt 0 ] && [[ " ${PERMITIDAS[*]} " != *" $LOCAL "* ]]; then
   echo "ERRO: a regiao '$LOCAL' nao esta permitida na sua assinatura."
-  echo "Permitidas: $(echo "$PERMITIDAS" | tr '\n' ' ')"
+  echo "Permitidas: ${PERMITIDAS[*]}"
   echo "Rode de novo escolhendo uma delas, por exemplo:"
-  echo "  LOCAL=$(echo "$PERMITIDAS" | head -1) bash $0"
+  echo "  LOCAL=${PERMITIDAS[0]} bash $0"
   exit 1
 fi
 
