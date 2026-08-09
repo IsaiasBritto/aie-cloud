@@ -462,9 +462,9 @@ python3 indexar_produtos.py
 
 Após a execução do script, podemos seguir com o exercício:
 
+```
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 indexar_produtos.py
-```
 
 O script já demonstra 3 tipos de busca:
 - **Keyword:** `cadeira escritório`
