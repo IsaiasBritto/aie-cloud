@@ -48,3 +48,36 @@ resource "azurerm_role_assignment" "search_index_data" {
   role_definition_name = "Search Index Data Contributor"
   principal_id         = data.azurerm_client_config.current.object_id
 }
+
+# ---------------------------------------------------------------------------
+# Habilita o semantic ranker via CLI, porque o provider nao permite declarar.
+#
+# terraform_data e nativo desde o Terraform 1.4 - nao exige o provider "null".
+# triggers_replace faz o comando rodar de novo se o search service for
+# recriado (id novo), e ficar quieto nos applies seguintes.
+#
+# ATENCAO - isto e um escape hatch, nao IaC de verdade:
+#   - roda na maquina que executa o terraform, nao na Azure
+#   - exige "az" instalado e autenticado (ok no Cloud Shell)
+#   - o Terraform nao sabe o estado real: se alguem desabilitar o semantic
+#     pelo portal, nenhum plan vai acusar a diferenca
+# Use provisioner so quando nao houver alternativa declarativa - que e
+# exatamente o caso aqui.
+# ---------------------------------------------------------------------------
+resource "terraform_data" "search_semantic" {
+  triggers_replace = [azurerm_search_service.qc.id]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -e
+      echo "Habilitando semantic ranker (plano free) em ${azurerm_search_service.qc.name}..."
+      az search service update \
+        --name "${azurerm_search_service.qc.name}" \
+        --resource-group "${azurerm_resource_group.rg.name}" \
+        --semantic-search free \
+        --output none
+      echo "Semantic ranker habilitado."
+    EOT
+  }
+}
