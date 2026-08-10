@@ -22,7 +22,7 @@ Wrap-up    — terraform destroy + verificação custo zero              ~10 min
 ## Pré-requisitos
 
 - ✅ Aula 1 concluída (Cloud Shell funcional, Terraform rodando)
-- ✅ Repositório `aie-cloud` clonado no Cloud Shell
+- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/isaiasbritto/aie-cloud.git`)
 
 > **Aula independente:** esta aula **não depende da Aula 2**. O Terraform cria
 > seu próprio Storage Account de catálogo e já sobe o `produtos.csv` no `apply`
