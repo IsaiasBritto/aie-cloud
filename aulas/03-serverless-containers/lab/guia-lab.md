@@ -22,7 +22,7 @@ Wrap-up    — terraform destroy + verificação custo zero              ~10 min
 ## Pré-requisitos
 
 - ✅ Aula 1 concluída (Cloud Shell funcional, Terraform rodando)
-- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/isaiasbritto/aie-cloud.git`)
+- ✅ Repositório `aie-cloud` clonado no Cloud Shell
 
 > **Aula independente:** esta aula **não depende da Aula 2**. O Terraform cria
 > seu próprio Storage Account de catálogo e já sobe o `produtos.csv` no `apply`
@@ -194,6 +194,12 @@ terraform apply -auto-approve -var="aci_enabled=true"
 
 Tempo: ~1 min. O ACI puxa a imagem do ACR e sobe o container.
 
+> **Repare no que o ACI *não* recebeu:** nenhum usuário, nenhuma senha, nenhuma
+> connection string. A mesma Managed Identity user-assigned faz as duas coisas —
+> `AcrPull` no ACR para puxar a imagem e `Storage Blob Data Reader` no Storage
+> para ler o CSV. Duas atribuições separadas, cada uma no escopo do seu recurso.
+> Abra o [containers.tf](terraform/containers.tf) e confira.
+
 ### Passo 3 — Testar o ACI
 
 ```bash
@@ -206,6 +212,41 @@ sleep 60
 curl "http://$ACI_FQDN:8080/health"
 curl "http://$ACI_FQDN:8080/produtos?categoria=moveis"
 ```
+
+> **Cuidado com o falso positivo:** o `/health` não toca no Storage — ele responde
+> `ok` mesmo com a identidade quebrada. Quem prova que a autenticação funcionou é
+> o `/produtos`. E como o `restart_policy` é `Always`, um container que morre no
+> boot fica reiniciando em loop sem o `terraform apply` reclamar de nada:
+>
+> ```bash
+> RG=$(terraform output -raw resource_group_name)
+> ACI=$(terraform output -raw aci_name)
+>
+> az container show -g "$RG" -n "$ACI" \
+>   --query "containers[0].instanceView.{estado:currentState.state, reinicios:restartCount}" -o table
+>
+> az container logs -g "$RG" -n "$ACI"
+> ```
+>
+> `restartCount` maior que zero já denuncia crash loop.
+
+**Pergunta rápida (2 min):** a Function usa MI *system-assigned* e o código não
+precisa de nada. O ACI usa MI *user-assigned* e precisa receber `AZURE_CLIENT_ID`
+como variável de ambiente. Por quê?
+
+<details>
+<summary>Resposta</summary>
+
+O `DefaultAzureCredential` pede o token ao IMDS local sem dizer quem ele é. Com
+system-assigned existe **uma** identidade possível e o IMDS resolve sozinho. Com
+user-assigned, a identidade é um recurso separado que pode estar anexado a vários
+serviços — e vários podem estar anexados ao mesmo container. O SDK precisa
+apontar qual, e faz isso pelo `client_id`.
+
+Vale reforçar a diferença: `client_id` é o que vai ao IMDS; `principal_id` é o
+objeto no Entra que aparece nas role assignments. Trocar um pelo outro é o erro
+mais comum aqui — e o sintoma é justamente `/health` verde com `/produtos` em 500.
+</details>
 
 ### Passo 4 — Comparação Function vs ACI (5 min)
 
@@ -285,8 +326,10 @@ Na Aula 4 vamos adicionar mais tools (busca por imagem com Vision, transcrição
 | `az acr build` → `TasksOperationsNotAllowed` | ACR Tasks é bloqueado em contas Azure for Students | Não usar build no aluno — importar a imagem do GHCR com `az acr import` (Passo 1) |
 | `az acr import` → `403 DENIED` / "access to the resource is denied" | Imagem do GHCR está **privada** (packages nascem privados) ou não publicada | Professor torna `ghcr.io/elthonf/produtos-api:v1` **público** (Package settings → Change visibility); ou o aluno passa `--username elthonf --password <PAT read:packages>` |
 | ACI "Crashed" com `exec format error` | Imagem buildada em arquitetura errada (ex.: ARM no Mac) | Rebuildar com `--platform linux/amd64` e re-publicar no GHCR |
-| ACI fica em "Pulling image" eternamente | Credencial do ACR errada | Verificar `image_registry_credential` no TF; confirmar que a imagem está no ACR (`az acr repository list`) |
+| ACI falha com `InaccessibleImage` / fica em "Pulling image" | A identidade não tem `AcrPull`, ou a imagem não está no ACR | Conferir `az role assignment list --assignee $(terraform output -raw aci_identity_client_id) --all -o table` e `az acr repository list -n <acr>` |
 | ACI "Crashed" | App levantou e morreu | `az container logs -n <aci-name> -g <rg>` para ver erro |
+| `/health` responde mas `/produtos` dá 500 "falha ao acessar storage" | Falta `AZURE_CLIENT_ID` no container, ou a role `Storage Blob Data Reader` não propagou | Com identidade **user-assigned** o `DefaultAzureCredential` não adivinha qual usar — o env var é obrigatório. Conferir com `az container show ... --query "containers[0].environmentVariables"` |
+| ACI mostra `restartCount` > 0 mas o `terraform apply` deu verde | `restart_policy = "Always"` reinicia em loop; o Terraform só garante que o recurso existe, não que a app funciona | `az container show -g <rg> -n <aci> --query "containers[0].instanceView.{estado:currentState.state, reinicios:restartCount}" -o table` |
 | ACI retorna timeout no `curl` | DNS ainda propagando | Aguardar 30s |
 | FastAPI roda local mas falha no ACI | MI não propagou para subscription | Aguardar 1-2 min e tentar de novo |
 
