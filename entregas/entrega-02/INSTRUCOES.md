@@ -13,7 +13,7 @@
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
 | 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 (storage, tiers, relacional vs NoSQL, RBAC do Key Vault) | ✅ Sim | 3 pts (Critério 1) |
 | 🟡 N2 — Exercícios 2.1 (matriz de dados QC + diagrama), 2.2 (plano de migração), 2.3 (particionamento Cosmos) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
-| 🔴 N3 — Exercícios 3.1 (vector search verdadeira), 3.2 (Synapse serverless), 3.3 (benchmark) | 🎁 Bônus | até +2 pts extras |
+| 🔴 N3 — Exercícios 3.1 (vector search verdadeira) |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total** | | **10 pts** |
 
