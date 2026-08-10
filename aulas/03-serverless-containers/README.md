@@ -9,41 +9,86 @@ Versão **FastAPI** da API de catálogo da QC, com mesma lógica de negócio da 
 | [app.py](app.py) | API FastAPI com endpoints `/health` e `/produtos` |
 | [requirements.txt](requirements.txt) | Dependências (FastAPI + Uvicorn + azure-identity + azure-storage-blob) |
 | [Dockerfile](Dockerfile) | Multi-stage build, imagem final leve (~150 MB) |
+| [`.github/workflows/publicar-imagem-produtos-api.yml`](../../../../.github/workflows/publicar-imagem-produtos-api.yml) | Workflow que builda e publica a imagem no GHCR (Passo A) |
 
-## Por que não buildar no Cloud Shell?
+## Onde cada coisa roda
 
-Nas contas **Azure for Students**, o **ACR Tasks é bloqueado** (`az acr build` → `TasksOperationsNotAllowed`) e o **Cloud Shell não tem daemon Docker** (`docker build` não roda). Por isso a imagem é **construída e publicada uma vez no GHCR pelo professor**, e cada aluno só **importa** a imagem pronta para o seu ACR via `az acr import` (operação permitida, sem Tasks e sem Docker local).
+A imagem **não é construída no Azure**. São dois ambientes distintos, e confundi-los
+é a causa de quase todo problema nesta atividade:
 
-## Passo A — Publicar no GHCR (PROFESSOR, 1× por turma)
+| Passo | Onde | Quem | Frequência |
+|-------|------|------|------------|
+| **A** — build + push no GHCR | GitHub Actions | Professor | **1× e pronto** — só repete se o código mudar |
+| **B** — `az acr import` | Cloud Shell | Cada aluno | Toda vez que refizer o lab |
 
-Feito numa máquina/Codespace **com Docker** (Codespaces já é `linux/amd64`, ideal):
+### Por que o build não roda no Cloud Shell
 
-Antes, crie um **PAT do GitHub** (Settings → Developer settings → Personal access
-tokens → **Tokens (classic)** → escopo **`write:packages`**) e exporte:
+Duas portas fechadas ao mesmo tempo:
+
+- **`docker build`** → `Cannot connect to the Docker daemon`. O Cloud Shell tem o
+  *cliente* `docker` instalado, mas nenhum daemon atrás dele. (O `docker login`
+  até funciona, porque só grava credencial em arquivo — o que engana.)
+- **`az acr build`** → `TasksOperationsNotAllowed`. O ACR Tasks buildaria do lado
+  do Azure, sem Docker local, mas é bloqueado em contas Azure for Students.
+
+Sem saída dentro do Azure. Por isso o build acontece no runner do GitHub, que tem
+Docker de verdade e é `linux/amd64` nativo — a arquitetura que o ACI exige.
+
+---
+
+## Passo A — Publicar no GHCR (PROFESSOR, 1× e pronto)
+
+Automatizado por
+[`.github/workflows/publicar-imagem-produtos-api.yml`](../../../../.github/workflows/publicar-imagem-produtos-api.yml).
+**Não há nada para rodar no terminal.**
+
+### A.1 — Disparar o workflow
+
+Ele roda sozinho em qualquer push que altere `lab/docker/**`. Para disparar à mão:
+
+GitHub → aba **Actions** → **Publicar imagem produtos-api no GHCR** → **Run workflow**
+
+Leva ~2 min. O resumo da execução mostra o endereço da imagem publicada.
+
+### A.2 — Tornar o package público (só na primeira vez)
+
+**Este é o único passo manual, e o mais fácil de esquecer.** Todo package novo no
+GHCR nasce **privado**, e o `az acr import` do aluno é anônimo — sem isto ele falha
+com `403 DENIED`.
+
+<https://github.com/users/IsaiasBritto/packages/container/produtos-api/settings>
+→ **Danger Zone** → **Change visibility** → **Public**
+
+> O package pertence à **conta**, não ao repositório — por isso não existe aba
+> "Packages" na barra do repo. Pelo caminho manual: seu avatar → **Your profile**
+> → aba **Packages** → `produtos-api` → **Package settings**.
+
+> Se preferir manter privado, cada aluno teria de passar
+> `--username <owner> --password <PAT read:packages>` no `az acr import` — bem
+> menos prático para a turma.
+
+### A.3 — Conferir que ficou acessível
 
 ```bash
-export GHCR_PAT=ghp_seu_token_aqui   # sem isto, o login abaixo dá "Cannot perform an interactive login from a non TTY device"
+az acr import --name "$ACR_NAME" \
+  --source ghcr.io/isaiasbritto/produtos-api:v1 \
+  --image produtos-api:v1 --force
+
+az acr repository show -n "$ACR_NAME" --image produtos-api:v1 \
+  --query "{arquitetura:architecture, os:os, criada:createdTime}" -o table
 ```
 
-```bash
-cd aulas/03-serverless-containers/lab/docker
+`arquitetura` precisa ser **`amd64`**. Se vier `arm64`, o container sobe e morre
+com `exec format error` — o workflow força `linux/amd64` justamente para isso.
 
-# Login no GHCR (alternativa: 'docker login ghcr.io -u isaiasbritto' e colar o PAT no prompt)
-echo "$GHCR_PAT" | docker login ghcr.io -u isaiasbritto --password-stdin
+> **Por que não fazer o Passo A na mão com Docker?** Dá para fazer, num Codespace
+> ou numa máquina com Docker Desktop. Mas exige criar um PAT com `write:packages`,
+> e o PAT fica gravado em texto puro no `~/.docker/config.json`. O workflow usa o
+> `GITHUB_TOKEN`, que é emitido para aquela execução e expira ao terminar — não há
+> segredo de longa duração para vazar. É o mesmo raciocínio de Managed Identity
+> aplicado ao CI.
 
-# IMPORTANTE: ACI roda linux/amd64 — force a plataforma (essencial em Mac ARM)
-docker build --platform linux/amd64 -t ghcr.io/isaiasbritto/produtos-api:v1 .
-docker push ghcr.io/isaiasbritto/produtos-api:v1
-```
-
-Depois, **torne o package público** — todo package novo no GHCR nasce **privado**,
-e o `az acr import` do aluno (acesso anônimo) falharia com `403 DENIED` se ficar privado:
-
-GitHub → **Packages → produtos-api → Package settings → Danger Zone → Change visibility → Public**
-
-> Se preferir manter privado, o aluno teria de passar `--username isaiasbritto --password <PAT read:packages>` no `az acr import` (menos prático para a turma).
-
-> Ajuste `isaiasbritto` para o owner real do GHCR, se for outro.
+---
 
 ## Passo B — Importar a imagem no seu ACR (ALUNO, no Cloud Shell)
 
@@ -59,6 +104,10 @@ az acr import \
 # Confirmar
 az acr repository list -n "$ACR_NAME" -o table
 ```
+
+> O `--force` está aí de propósito: sem ele, repetir o lab dá
+> `(Conflict) Tag produtos-api:v1 already exists in target registry`. Não é erro
+> de verdade — é o ACR se recusando a sobrescrever uma tag existente.
 
 ## Depois da importação, habilitar o ACI
 
