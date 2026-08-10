@@ -28,12 +28,12 @@ export GHCR_PAT=ghp_seu_token_aqui   # sem isto, o login abaixo dá "Cannot perf
 ```bash
 cd aulas/03-serverless-containers/lab/docker
 
-# Login no GHCR (alternativa: 'docker login ghcr.io -u elthonf' e colar o PAT no prompt)
-echo "$GHCR_PAT" | docker login ghcr.io -u elthonf --password-stdin
+# Login no GHCR (alternativa: 'docker login ghcr.io -u isaiasbritto' e colar o PAT no prompt)
+echo "$GHCR_PAT" | docker login ghcr.io -u isaiasbritto --password-stdin
 
 # IMPORTANTE: ACI roda linux/amd64 — force a plataforma (essencial em Mac ARM)
-docker build --platform linux/amd64 -t ghcr.io/elthonf/produtos-api:v1 .
-docker push ghcr.io/elthonf/produtos-api:v1
+docker build --platform linux/amd64 -t ghcr.io/isaiasbritto/produtos-api:v1 .
+docker push ghcr.io/isaiasbritto/produtos-api:v1
 ```
 
 Depois, **torne o package público** — todo package novo no GHCR nasce **privado**,
@@ -41,9 +41,9 @@ e o `az acr import` do aluno (acesso anônimo) falharia com `403 DENIED` se fica
 
 GitHub → **Packages → produtos-api → Package settings → Danger Zone → Change visibility → Public**
 
-> Se preferir manter privado, o aluno teria de passar `--username elthonf --password <PAT read:packages>` no `az acr import` (menos prático para a turma).
+> Se preferir manter privado, o aluno teria de passar `--username isaiasbritto --password <PAT read:packages>` no `az acr import` (menos prático para a turma).
 
-> Ajuste `elthonf` para o owner real do GHCR, se for outro.
+> Ajuste `isaiasbritto` para o owner real do GHCR, se for outro.
 
 ## Passo B — Importar a imagem no seu ACR (ALUNO, no Cloud Shell)
 
@@ -52,7 +52,7 @@ ACR_NAME=$(cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform && terraf
 
 az acr import \
   --name "$ACR_NAME" \
-  --source ghcr.io/elthonf/produtos-api:v1 \
+  --source ghcr.io/isaiasbritto/produtos-api:v1 \
   --image produtos-api:v1 \
   --force
 
