@@ -173,7 +173,7 @@ ACR_NAME=$(cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform && terraf
 # Importa a imagem pública do GHCR para o seu ACR (poucos segundos)
 az acr import \
   --name "$ACR_NAME" \
-  --source ghcr.io/elthonf/produtos-api:v1 \
+  --source ghcr.io/isaiasbritto/produtos-api:v1 \
   --image produtos-api:v1
 
 # Confirmar que a imagem chegou
@@ -324,7 +324,7 @@ Na Aula 4 vamos adicionar mais tools (busca por imagem com Vision, transcrição
 | Function retorna 403 "AuthorizationFailed" | MI ainda propagando | Aguardar 1-2 min |
 | Function retorna 500 "STORAGE_ACCOUNT_CATALOGO not set" | Variável de ambiente não chegou | Verificar `app_settings` no TF + `terraform apply` de novo |
 | `az acr build` → `TasksOperationsNotAllowed` | ACR Tasks é bloqueado em contas Azure for Students | Não usar build no aluno — importar a imagem do GHCR com `az acr import` (Passo 1) |
-| `az acr import` → `403 DENIED` / "access to the resource is denied" | Imagem do GHCR está **privada** (packages nascem privados) ou não publicada | Professor torna `ghcr.io/elthonf/produtos-api:v1` **público** (Package settings → Change visibility); ou o aluno passa `--username elthonf --password <PAT read:packages>` |
+| `az acr import` → `403 DENIED` / "access to the resource is denied" | Imagem do GHCR está **privada** (packages nascem privados) ou não publicada | Professor torna `ghcr.io/isaiasbritto/produtos-api:v1` **público** (Package settings → Change visibility); ou o aluno passa `--username isaiasbritto --password <PAT read:packages>` |
 | ACI "Crashed" com `exec format error` | Imagem buildada em arquitetura errada (ex.: ARM no Mac) | Rebuildar com `--platform linux/amd64` e re-publicar no GHCR |
 | ACI falha com `InaccessibleImage` / fica em "Pulling image" | A identidade não tem `AcrPull`, ou a imagem não está no ACR | Conferir `az role assignment list --assignee $(terraform output -raw aci_identity_client_id) --all -o table` e `az acr repository list -n <acr>` |
 | ACI "Crashed" | App levantou e morreu | `az container logs -n <aci-name> -g <rg>` para ver erro |
