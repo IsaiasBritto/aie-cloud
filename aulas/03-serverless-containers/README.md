@@ -1,57 +1,127 @@
-# Aula 3 — Compute Avançado: Serverless, VMs e Containers
+# Container code — Aula 3
 
-## Objetivos de aprendizagem
+Versão **FastAPI** da API de catálogo da QC, com mesma lógica de negócio da Function `v2-blob`, mas empacotada num **container Docker** para rodar no Azure Container Instances (ACI).
 
-Ao final desta aula, você será capaz de:
+## Arquivos
 
-- Comparar os 3 modelos de compute: VMs, Containers e Serverless (Functions).
-- Decidir qual modelo usar para cada tipo de workload da QC.
-- Provisionar uma **Azure Function App** em **Flex Consumption** (plano FC1) via Terraform e fazer deploy com `func`.
-- Acessar recursos do Azure **sem credenciais no código** usando **Managed Identity** (System-assigned e User-assigned).
-- Empacotar uma aplicação Python (FastAPI) em **container Docker**, publicar no **Azure Container Registry** e rodar no **Azure Container Instances**.
-- Entender o papel do Kubernetes/AKS e quando ele **não** é a melhor escolha.
+| Arquivo | O que é |
+|---------|---------|
+| [app.py](app.py) | API FastAPI com endpoints `/health` e `/produtos` |
+| [requirements.txt](requirements.txt) | Dependências (FastAPI + Uvicorn + azure-identity + azure-storage-blob) |
+| [Dockerfile](Dockerfile) | Multi-stage build, imagem final leve (~150 MB) |
 
----
+## Por que não buildar no Cloud Shell?
 
-## Por que esta aula importa para um AI Engineer
+Nas contas **Azure for Students**, o **ACR Tasks é bloqueado** (`az acr build` → `TasksOperationsNotAllowed`) e o **Cloud Shell não tem daemon Docker** (`docker build` não roda). Por isso a imagem é **construída e publicada uma vez no GHCR pelo professor**, e cada aluno só **importa** a imagem pronta para o seu ACR via `az acr import` (operação permitida, sem Tasks e sem Docker local).
 
-A camada de **compute** é onde os agentes da QC vão **rodar** (Functions chamadas pelos modelos como tools) e onde as **APIs** que eles consomem ficam expostas. Function HTTP + Managed Identity é o padrão para tornar um endpoint **utilizável por um agente** sem vazar credenciais.
+## Passo A — Publicar no GHCR (PROFESSOR, 1× por turma)
 
----
+Feito numa máquina/Codespace **com Docker** (Codespaces já é `linux/amd64`, ideal):
 
-## Conexão com o Quantum Commerce
+Antes, crie um **PAT do GitHub** (Settings → Developer settings → Personal access
+tokens → **Tokens (classic)** → escopo **`write:packages`**) e exporte:
 
-Nesta aula você implanta a **API de catálogo** da Quantum Commerce — primeira **tool** que os agentes da QC vão chamar. Dois sabores:
+```bash
+export GHCR_PAT=ghp_seu_token_aqui   # sem isto, o login abaixo dá "Cannot perform an interactive login from a non TTY device"
+```
 
-1. **Function HTTP (Python)** — Flex Consumption: pay-per-execution, escala a zero, cold start menor.
-2. **Container (FastAPI + ACI)** — mesma lógica de negócio empacotada em container, com Managed Identity user-assigned.
+```bash
+cd aulas/03-serverless-containers/lab/docker
 
-Ambas leem `produtos.csv` de um Blob Storage **criado nesta própria aula** — **sem credenciais hardcoded**, via Managed Identity.
+# Login no GHCR (alternativa: 'docker login ghcr.io -u elthonf' e colar o PAT no prompt)
+echo "$GHCR_PAT" | docker login ghcr.io -u elthonf --password-stdin
 
----
+# IMPORTANTE: ACI roda linux/amd64 — force a plataforma (essencial em Mac ARM)
+docker build --platform linux/amd64 -t ghcr.io/elthonf/produtos-api:v1 .
+docker push ghcr.io/elthonf/produtos-api:v1
+```
 
-## Material da aula
+Depois, **torne o package público** — todo package novo no GHCR nasce **privado**,
+e o `az acr import` do aluno (acesso anônimo) falharia com `403 DENIED` se ficar privado:
 
-| Arquivo | Quando usar |
-|---------|-------------|
-| [lab/guia-lab.md](lab/guia-lab.md) | Durante a aula — 3 atividades intercaladas |
-| [lab/terraform/](lab/terraform/) | Código IaC: Function App + ACR + ACI + identidades + roles |
-| [lab/function/v1-mock/](lab/function/v1-mock/) | Versão 1 da Function (mock data) — L₁ |
-| [lab/function/v2-blob/](lab/function/v2-blob/) | Versão 2 da Function (Blob + MI) — L₂ |
-| [lab/docker/](lab/docker/) | Versão FastAPI containerizada — L₃ |
-| [exercicios.md](exercicios.md) | Após a aula — exercícios em 3 níveis (🟢/🟡/🔴) |
+GitHub → **Packages → produtos-api → Package settings → Danger Zone → Change visibility → Public**
 
-## Entrega de grupo
+> Se preferir manter privado, o aluno teria de passar `--username elthonf --password <PAT read:packages>` no `az acr import` (menos prático para a turma).
 
-Esta aula gera a **3ª entrega de grupo** (10% da nota): instruções em [entregas/entrega-03/](../../entregas/entrega-03/). Rubrica em [entregas/rubrica.md](../../entregas/rubrica.md).
+> Ajuste `elthonf` para o owner real do GHCR, se for outro.
 
----
+## Passo B — Importar a imagem no seu ACR (ALUNO, no Cloud Shell)
 
-## Pré-requisitos
+```bash
+ACR_NAME=$(cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform && terraform output -raw acr_name)
 
-- ✅ Aula 1 concluída (Cloud Shell + Terraform funcionando)
-- ✅ Repositório `aie-cloud` clonado no Cloud Shell
+az acr import \
+  --name "$ACR_NAME" \
+  --source ghcr.io/elthonf/produtos-api:v1 \
+  --image produtos-api:v1 \
+  --force
 
-> **Aula independente da Aula 2.** O Terraform desta aula cria o próprio Storage
-> de catálogo e já sobe o `produtos.csv` ([lab/data/produtos.csv](lab/data/produtos.csv))
-> no `apply`. Nenhum passo da Aula 2 é necessário.
+# Confirmar
+az acr repository list -n "$ACR_NAME" -o table
+```
+
+## Depois da importação, habilitar o ACI
+
+```bash
+cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform
+terraform apply -auto-approve -var="aci_enabled=true"
+```
+
+## Testar o ACI
+
+```bash
+ACI_FQDN=$(cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform && terraform output -raw aci_fqdn)
+
+sleep 60   # aguardar a MI propagar
+curl "http://$ACI_FQDN:8080/health"
+curl "http://$ACI_FQDN:8080/produtos?categoria=moveis"
+```
+
+> **`/health` verde não significa API funcionando.** O `/health` não toca no
+> Storage — ele responde mesmo com a identidade quebrada. Quem prova que a MI
+> está correta é o `/produtos`. E como o `restart_policy` é `Always`, um container
+> que morre no boot reinicia em loop sem o Terraform reclamar:
+>
+> ```bash
+> RG=$(terraform output -raw resource_group_name)
+> ACI=$(terraform output -raw aci_name)
+>
+> az container show -g "$RG" -n "$ACI" \
+>   --query "containers[0].instanceView.{estado:currentState.state, reinicios:restartCount}" -o table
+>
+> az container logs -g "$RG" -n "$ACI"
+> ```
+
+## Autenticação: nenhuma senha em lugar nenhum
+
+Duas coisas precisam de credencial aqui, e as duas usam a **mesma** Managed
+Identity user-assigned — com atribuições separadas e mínimas:
+
+| O quê | Papel | Escopo |
+|-------|-------|--------|
+| Puxar a imagem | `AcrPull` | só o ACR |
+| Ler o `produtos.csv` | `Storage Blob Data Reader` | só o Storage do catálogo |
+
+Por isso o ACR está com `admin_enabled = false` e o `image_registry_credential`
+no Terraform não tem `username`/`password`, só `user_assigned_identity_id`.
+
+⚠️ **O detalhe que quebra na prática:** com identidade **user-assigned** o
+`DefaultAzureCredential` não tem como adivinhar qual identidade usar — é preciso
+passar `AZURE_CLIENT_ID` como variável de ambiente do container (já está no
+`containers.tf`). Com identidade *system-assigned*, como a da Function, existe só
+uma opção e o SDK acerta sozinho — é a diferença entre os dois runtimes que mais
+confunde.
+
+> **Nota:** ACI não tem HTTPS built-in. Em produção, colocar Front Door, Application Gateway ou Azure Container Apps na frente (ou usar Container Apps direto, que tem TLS gerenciado).
+
+## Comparação com a Function (mesma lógica, runtime diferente)
+
+| Aspecto | Function v2-blob | ACI (este container) |
+|---------|------------------|----------------------|
+| URL | `https://<func>.azurewebsites.net/api/produtos` | `http://<aci>:8080/produtos` |
+| TLS | ✅ Built-in | ❌ Não (manual) |
+| Cold start | 1-3s | Não há (sempre on) |
+| Custo idle | $0 | $$ pay-per-second mesmo idle |
+| Auto-scale | ✅ 0-200 | ❌ 1 réplica fixa |
+| Linguagem | Python/.NET/JS/Java | Qualquer |
+| Identidade | System-assigned MI | User-assigned MI |
