@@ -126,13 +126,33 @@ Este script cria um Azure Container Registry **na sua própria assinatura** e
 importa as imagens do MongoDB para lá. Use uma das regiões do Passo 0:
 
 ```bash
-LOCAL=eastus2 bash setup-registry-aluno.sh
-
-source ~/.qc-registry.env
-echo "registry=[$TF_VAR_registry_server]"
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+source setup-registry-aluno.sh
 ```
 
-A última linha precisa mostrar um endereço terminado em `.azurecr.io`.
+Só isso. Ele lê a região do `location_aci` que o Passo 0 gravou no
+`terraform.tfvars` — o registry acompanha o ACI de propósito, já que é o ACI
+quem puxa a imagem — e, por ser carregado com `source`, já deixa as três
+variáveis `TF_VAR_registry_*` prontas nesta sessão.
+
+No fim ele imprime um endereço terminado em `.azurecr.io`. Se aparecer, pode
+seguir direto para o `terraform apply`.
+
+> **Por que `source` e não `bash`:** um script executado com `bash` roda em outro
+> processo, e variáveis de ambiente não voltam para o shell que o chamou. Era por
+> isso que existia o segundo comando (`source ~/.qc-registry.env`) — e era o
+> passo que todo mundo esquecia, resultando em `apply` que puxa do Docker Hub e
+> falha com `409 RegistryErrorResponse`.
+>
+> O arquivo `~/.qc-registry.env` continua sendo gravado (modo 600). Se a sessão
+> do Cloud Shell cair, `source ~/.qc-registry.env` recupera tudo sem recriar
+> nada.
+
+Para forçar outra região, `LOCAL=` continua funcionando:
+
+```bash
+LOCAL=brazilsouth source setup-registry-aluno.sh
+```
 
 > **Por que este passo existe:** o Azure Container Instances puxa a imagem do
 > Docker Hub usando IPs de saída compartilhados da região, e o Docker Hub
