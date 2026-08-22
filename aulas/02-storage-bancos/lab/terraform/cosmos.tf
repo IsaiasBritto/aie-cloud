@@ -4,8 +4,15 @@
 # 1 conta free-tier por assinatura — o que trava o lab se já houver outra.
 # Em serverless o custo das 4h de aula é de centavos. Ligue via -var se quiser.
 resource "azurerm_cosmosdb_account" "qc" {
-  name                = "cosmos-qc-${random_string.sufixo.result}b"
-  location            = azurerm_resource_group.rg.location
+  name = "cosmos-qc-${random_string.sufixo.result}"
+
+  # Região própria (local.location_cosmos, default = var.location).
+  # A conta NÃO precisa ficar na mesma região do Resource Group, então trocar
+  # esta região não move Storage, Key Vault nem SQL — nada é recriado.
+  # Use quando aparecer:
+  #   503 ServiceUnavailable "high demand in this region"
+  # que é capacidade esgotada da Azure, não problema da sua assinatura.
+  location            = local.location_cosmos
   resource_group_name = azurerm_resource_group.rg.name
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
@@ -16,7 +23,7 @@ resource "azurerm_cosmosdb_account" "qc" {
   }
 
   geo_location {
-    location          = azurerm_resource_group.rg.location
+    location          = local.location_cosmos
     failover_priority = 0
   }
 
