@@ -123,7 +123,7 @@ Shell — pode ignorar.
 ### Passo 3 — Crie o registry das imagens do MongoDB
 
 Este script cria um Azure Container Registry **na sua própria assinatura** e
-importa as imagens do MongoDB para lá. Use uma das regiões do Passo 0:
+importa as imagens do MongoDB para lá. A região vem sozinha do Passo 0:
 
 ```bash
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
@@ -166,73 +166,90 @@ LOCAL=brazilsouth source setup-registry-aluno.sh
 
 ---
 
-### Passo 4 — Defina a senha do SQL
+### Passo 4 — Provisione
+
+Um comando:
 
 ```bash
-export TF_VAR_sql_admin_password="$(openssl rand -base64 24)"
-echo "Senha gerada (anote): $TF_VAR_sql_admin_password"
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+bash provisionar.sh
 ```
 
-**Anote o valor.** Se a sessão cair, você precisa exportar exatamente a mesma
-senha — caso contrário o Terraform troca a senha do servidor no meio do lab e a
-connection string do Key Vault fica inconsistente.
+Leva de 6 a 10 minutos. Aproveite para reler os `.tf` enquanto roda.
 
-> **Por que `TF_VAR_` e não `-var=`:** o Terraform lê variáveis com esse prefixo
-> automaticamente, então nenhum comando seguinte precisa repetir a senha. Menos
-> digitação e menos chance de aplicar com valor diferente do anterior.
-
-Confirme que nada ficou vazio antes de seguir:
+**Anote a senha do SQL** que ele imprime no começo. Ela é gerada na hora e não
+fica gravada em disco — se a sessão do Cloud Shell cair, você precisa exportar
+exatamente a mesma, senão o Terraform troca a senha do servidor no meio do lab e
+a connection string do Key Vault fica inconsistente:
 
 ```bash
-echo "senha=${#TF_VAR_sql_admin_password}  registry=[$TF_VAR_registry_server]"
+export TF_VAR_sql_admin_password="<a senha anotada>"
 ```
-
----
-
-### Passo 5 — Ajuste as regiões e provisione
-
-O `terraform.tfvars` traz regiões validadas em uma assinatura específica.
-Compare com a sua lista do Passo 0:
-
-```bash
-cat terraform.tfvars
-```
-
-Se alguma não estiver na sua lista, sobrescreva no comando sem editar o arquivo.
-
-```bash
-terraform init
-terraform plan
-```
-
-**Leia o plan antes de aplicar.** Confira três coisas:
-
-- `Plan: 24 to add, 0 to change, 0 to destroy`
-- as imagens do MongoDB começam com o endereço do seu registry, não com `mongo:7.0` puro
-- as regiões de cada recurso estão dentro da sua lista de permitidas
-
-```bash
-terraform apply -auto-approve
-```
-
-Leva de 6 a 8 minutos. Aproveite para reler os `.tf`.
 
 > **Não pressione `Ctrl+C` nem `Ctrl+Z` durante o apply.** Interromper deixa
 > recursos pela metade — uma conta Cosmos em estado `Failed`, por exemplo,
 > reserva o nome e impede recriar.
 
-Se algum recurso falhar por região, teste outra da sua lista sem editar arquivo:
+#### O que o script faz sozinho
+
+O Passo 0 elimina os erros de região que dá para **prever**. Sobram três que só
+aparecem na hora de criar, porque dependem da sua assinatura e do minuto:
+
+| Erro | Significado | O que o script faz |
+|---|---|---|
+| `403 ProvisioningDisabled` | sua assinatura não provisiona esse serviço nessa região | troca a região **só desse serviço** |
+| `503 ServiceUnavailable` | capacidade da Azure esgotada agora | repete na mesma região; se insistir, troca |
+| `400 InsufficientResources` | cota do SKU free esgotada agora | idem |
+| `409 InvalidResourceLocation` | criação anterior que falhou deixou o nome ocupado | apaga o recurso fantasma e repete |
+| `already exists / needs to be imported` | o **soft delete** do Key Vault restaurou segredos antigos junto com o vault | apaga e faz *purge* do segredo, e repete |
+
+Ele troca a região **por serviço**, nunca a região geral — o Cosmos pode ir para
+`eastus2` enquanto o resto fica onde está, sem recriar nada. As candidatas saem
+sempre da lista que a policy da sua assinatura permite.
+
+Se acabarem as regiões possíveis, ou se o erro não for de região, ele para e
+mostra a mensagem original. O log completo fica em `.provisionar.log`.
+
+#### Se preferir rodar na mão
+
+O caminho manual continua valendo, e é o que o script automatiza:
 
 ```bash
-terraform apply -auto-approve -var="location_search=<outra-regiao>"
+export TF_VAR_sql_admin_password="$(openssl rand -base64 24)"
+terraform init
+terraform plan     # confira: 25 to add, e as imagens vindo do SEU registry
+terraform apply -auto-approve
+```
+
+Para trocar a região de um serviço só, sem editar arquivo:
+
+```bash
+terraform apply -auto-approve -var="location_cosmos=eastus2"
 ```
 
 ---
 
-### Passo 6 — Habilite o semantic ranker do AI Search
+### Passo 5 — Confira o semantic ranker do AI Search
 
 O tier `free` suporta busca semântica (1000 queries/mês), mas o Terraform não
-consegue declarar isso: o provider recusa o argumento quando o SKU é `free`.
+consegue **declarar** isso: o provider recusa o argumento quando o SKU é `free`.
+Por isso o `search.tf` tem um `terraform_data` que chama o `az` logo depois de
+criar o serviço — você deve ter visto no apply:
+
+```
+terraform_data.search_semantic (local-exec): Semantic ranker habilitado.
+```
+
+Não há nada a fazer aqui. Só confirme:
+
+```bash
+az search service show \
+  --name $(terraform output -raw search_service_name) \
+  --resource-group $(terraform output -raw resource_group_name) \
+  --query "semanticSearch" -o tsv
+```
+
+Precisa responder `free`. Se vier `disabled` ou vazio, rode à mão:
 
 ```bash
 az search service update \
@@ -241,13 +258,14 @@ az search service update \
   --semantic-search free
 ```
 
-> **Sem esse passo**, o script da Atividade 3 funciona na busca por keyword e
-> falha na busca semântica com `FeatureNotSupportedInService` — o que é pior que
-> falhar direto, porque parece que está tudo certo.
+> **Por que isso importa:** sem o semantic ranker, o script da Atividade 3
+> funciona na busca por keyword e falha só na busca semântica, com
+> `FeatureNotSupportedInService`. É pior que falhar direto — parece que está
+> tudo certo até a metade do exercício.
 
 ---
 
-### Passo 7 — Exporte os outputs
+### Passo 6 — Exporte os outputs
 
 Os scripts Python das atividades precisam destes valores:
 
@@ -274,14 +292,20 @@ A infraestrutura continua no ar. Refaça apenas:
 ```bash
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
 
-pip install --user -r ../scripts/requirements.txt   # Passo 2
-source ~/.qc-registry.env                           # Passo 3
+pip install --user -r ../scripts/requirements.txt    # Passo 2
+source ~/.qc-registry.env                            # Passo 3
 export TF_VAR_sql_admin_password="<a senha anotada>" # Passo 4
-# e repita o Passo 7
+# e repita o Passo 6 (exportar os outputs)
 ```
 
-Se o `~/.qc-registry.env` também tiver sumido, rode `bash setup-registry-aluno.sh`
-outra vez — ele reaproveita o registry existente e leva poucos segundos.
+Se o `~/.qc-registry.env` também tiver sumido, rode
+`source setup-registry-aluno.sh` outra vez — ele reaproveita o registry
+existente e leva poucos segundos.
+
+> **Não rode `provisionar.sh` de novo só para recuperar a sessão.** A
+> infraestrutura já existe; o script serviria apenas para confirmar que não há
+> nada a mudar. Se você rodar sem exportar a senha anotada, ele gera uma nova e
+> o Terraform troca a senha do SQL Server no meio do lab.
 
 ---
 
