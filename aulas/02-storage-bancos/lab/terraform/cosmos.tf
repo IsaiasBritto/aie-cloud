@@ -6,13 +6,18 @@
 resource "azurerm_cosmosdb_account" "qc" {
   name = "cosmos-qc-${random_string.sufixo.result}"
 
-  # Região própria (local.location_cosmos, default = var.location).
+  # Região própria. O coalesce está inline DE PROPÓSITO, e não como um
+  # local.location_cosmos em locals.tf: assim este arquivo não depende de
+  # nenhum outro para funcionar. Os demais serviços usam locals porque já
+  # estavam assim — aqui a independência vale mais que a simetria.
+  #
   # A conta NÃO precisa ficar na mesma região do Resource Group, então trocar
-  # esta região não move Storage, Key Vault nem SQL — nada é recriado.
-  # Use quando aparecer:
-  #   503 ServiceUnavailable "high demand in this region"
+  # esta região não move Storage, Key Vault nem SQL — nada é recriado:
+  #   terraform apply -var="location_cosmos=<outra-regiao>"
+  #
+  # Use quando aparecer 503 ServiceUnavailable "high demand in this region",
   # que é capacidade esgotada da Azure, não problema da sua assinatura.
-  location            = local.location_cosmos
+  location            = coalesce(var.location_cosmos, var.location)
   resource_group_name = azurerm_resource_group.rg.name
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
@@ -23,7 +28,7 @@ resource "azurerm_cosmosdb_account" "qc" {
   }
 
   geo_location {
-    location          = local.location_cosmos
+    location          = coalesce(var.location_cosmos, var.location)
     failover_priority = 0
   }
 
