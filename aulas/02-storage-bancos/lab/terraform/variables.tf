@@ -37,6 +37,17 @@ variable "location_aci" {
   default     = "southcentralus"
 }
 
+variable "location_cosmos" {
+  # Null = segue var.location. Existe porque o Cosmos falha com um erro que
+  # NENHUM outro serviço do lab dá: 503 ServiceUnavailable, "high demand in this
+  # region". Não é policy nem cota da sua assinatura — é capacidade da Azure
+  # esgotada naquele momento. A conta pode ficar em região diferente do Resource
+  # Group, então trocar só esta variável não move mais nada.
+  description = "Região do Cosmos DB. Null segue a região padrão. Use outra se der 503 ServiceUnavailable."
+  type        = string
+  default     = null
+}
+
 variable "cosmos_free_tier" {
   # Mantido desligado: free-tier não beneficia conta serverless e o Azure só
   # permite 1 conta free-tier por assinatura (trava o lab se já houver outra).
