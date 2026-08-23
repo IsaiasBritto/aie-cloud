@@ -29,7 +29,7 @@ Wrap-up      — terraform destroy + verificação custo zero                   
 
 ```bash
 # Confirmar autenticação
-az account show --query "{nome:name, id:id}" -o table
+az account show --query "{nome:name, id:id}" -o
 
 # Criar pasta de trabalho do grupo
 mkdir -p ~/qc-grupo-NN/aula04
