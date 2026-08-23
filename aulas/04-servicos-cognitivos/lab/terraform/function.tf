@@ -57,7 +57,21 @@ resource "azurerm_function_app_flex_consumption" "fn" {
   instance_memory_in_mb  = 2048
   maximum_instance_count = 40
 
-  site_config {}
+  site_config {
+    # Sem isto, o botão "Testar/Executar" do portal falha com
+    #   {"message":"Failed to fetch","stack":"TypeError: Failed to fetch..."}
+    #
+    # É erro do NAVEGADOR, não da Function: o portal roda em portal.azure.com e
+    # chama a URL da Function por fetch. Sem a origem liberada em CORS, o
+    # navegador bloqueia antes da requisição sair — a Function nem é acionada.
+    #
+    # Function App criada pelo portal já vem com essa origem; criada por
+    # Terraform, não. O `curl` continua funcionando o tempo todo, porque CORS é
+    # uma proteção de navegador e não existe fora dele.
+    cors {
+      allowed_origins = ["https://portal.azure.com"]
+    }
+  }
 
   identity {
     type = "SystemAssigned"
