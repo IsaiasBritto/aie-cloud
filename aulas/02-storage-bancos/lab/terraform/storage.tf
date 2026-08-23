@@ -9,6 +9,27 @@ resource "azurerm_storage_account" "qc" {
   tags                     = local.tags
 }
 
+# Permissão de PLANO DE DADOS para você mesmo.
+#
+# Por que isto é necessário mesmo sendo Owner da assinatura:
+# ser Owner é plano de CONTROLE — permite criar, configurar e apagar a conta de
+# storage. Ler ou escrever um blob é plano de DADOS, e exige um papel próprio.
+# São dois sistemas de autorização diferentes sobre o mesmo recurso.
+#
+# Sem esta atribuição, o upload do CSV falha com:
+#   "You do not have the required permissions needed to perform this operation"
+# e o script de indexação falha com AuthorizationPermissionMismatch — ambos
+# apontando para permissão, sem dizer que a permissão que falta é de outro plano.
+#
+# A alternativa seria `--auth-mode key`, que usa a chave da conta. Funciona, mas
+# joga fora a lição: chave de storage é all-or-nothing e não identifica QUEM
+# acessou. O lab inteiro é sobre não fazer isso.
+resource "azurerm_role_assignment" "storage_blob_data" {
+  scope                = azurerm_storage_account.qc.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 # Container para o catálogo (acessado por agentes/funções)
 resource "azurerm_storage_container" "catalogo" {
   name                  = "catalogo"
