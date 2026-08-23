@@ -41,13 +41,20 @@ cd ~/qc-grupo-NN/aula04
 
 # Copiar os arquivos do lab
 LAB=~/aie-cloud/aulas/04-servicos-cognitivos/lab
-cp -r $LAB/terraform terraform/
-cp -r $LAB/function  function/
-cp -r $LAB/scripts   scripts/
-cp    $LAB/exportar-outputs.sh .
+
+# ATENÇÃO ao "-T": sem ele, `cp -r origem destino/` copia PARA DENTRO de
+# `destino` quando ela já existe, em vez de substituí-la. Rodar duas vezes
+# produz function/function/, e o zip do deploy sai com tudo duplicado.
+cp -rT $LAB/terraform terraform
+cp -rT $LAB/function  function
+cp -rT $LAB/scripts   scripts
+cp     $LAB/exportar-outputs.sh .
 
 ls
 # terraform/  function/  scripts/  exportar-outputs.sh
+
+# Confirme que NÃO há pasta aninhada (resquício de uma cópia anterior):
+find . -maxdepth 2 -type d -name function -o -maxdepth 2 -type d -name terraform
 
 cd terraform
 code .
@@ -112,8 +119,22 @@ No portal Azure → Resource Group `rg-qc-aula04-*`:
 - 1 × App Service Plan (**FC1 — Flex Consumption**)
 - 1 × **Cognitive Services** (multi-service S0 com custom subdomain)
 - 1 × **Key Vault** (com segredo `ai-services-key`)
+- 1 × **Container Registry** (Basic) + 1 × Managed Identity user-assigned
 - 1 × **Container Group ACI** (MongoDB 7.0 + Mongo Express)
 - 1 × **Function App** (Python 3.12, Managed Identity SystemAssigned)
+
+> **Por que o lab cria um Container Registry:** o ACI puxa a imagem por IPs de
+> saída **compartilhados da região**, e o Docker Hub limita pulls anônimos a 100
+> por 6 h por IP. Quando a turma roda junto, esse limite estoura e o `apply`
+> falha com `409 RegistryErrorResponse` — um erro que não diz nada sobre cota de
+> terceiros. Com um ACR próprio, o pull sai pelo backbone da Azure.
+>
+> O `terraform apply` faz tudo: cria o registry, importa `mongo` e
+> `mongo-express` com `az acr import`, e o ACI autentica por Managed Identity
+> (`AcrPull`) — sem usuário nem senha em lugar nenhum.
+>
+> Repare no `mongodb.tf`: é o mesmo raciocínio de identidade da Function, só que
+> aplicado a puxar imagem em vez de ler segredo.
 
 > **Por que FC1 e não o Y1 clássico:** contas Azure for Students têm cota **zero**
 > do plano Y1, e o erro que a Azure devolve é um `401 Unauthorized` — que parece
@@ -194,8 +215,10 @@ az storage blob upload \
 ```bash
 cd ~/qc-grupo-NN/aula04/function
 
-# Empacotar e publicar (remote build instala o requirements.txt no Azure)
-zip -r /tmp/function.zip .
+# Empacotar e publicar (remote build instala o requirements.txt no Azure).
+# O "rm" evita empacotar sobras de uma tentativa anterior dentro do mesmo zip.
+rm -f /tmp/function.zip
+zip -r /tmp/function.zip . -x "function/*"
 
 az functionapp deployment source config-zip \
   --resource-group $(cd ../terraform && terraform output -raw resource_group_name) \
