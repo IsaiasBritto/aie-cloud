@@ -38,6 +38,11 @@ locals {
   }
   mongo_admin_pass   = "QCadmin2024!"
   mongo_express_pass = "QCview2024!"
+
+  # Prefixo das imagens do ACI. Vazio quando não há registry configurado — aí o
+  # ACI puxa do Docker Hub público, sujeito ao rate limit anônimo de 100 pulls
+  # por 6 h por IP (e o ACI sai por IPs compartilhados da região).
+  image_prefix = var.registry_server == null ? "" : "${var.registry_server}/"
 }
 
 # Resource Group da Aula 4
