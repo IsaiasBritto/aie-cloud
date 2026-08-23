@@ -218,7 +218,7 @@ O caminho manual continua valendo, e é o que o script automatiza:
 ```bash
 export TF_VAR_sql_admin_password="$(openssl rand -base64 24)"
 terraform init
-terraform plan     # confira: 25 to add, e as imagens vindo do SEU registry
+terraform plan     # confira: 26 to add, e as imagens vindo do SEU registry
 terraform apply -auto-approve
 ```
 
@@ -345,14 +345,35 @@ az storage blob list \
   --output table
 ```
 
-> **Se aparecer "AuthorizationPermissionMismatch"**: você está autenticado mas seu papel ainda não permite Data Plane no Storage. Conceda a role:
+> **Se aparecer `AuthorizationPermissionMismatch` ou "You do not have the
+> required permissions":** este é o ponto da atividade, não um defeito.
+>
+> Você é **Owner** da assinatura e mesmo assim não consegue escrever um blob.
+> Owner é **plano de controle** — cria, configura e apaga a conta de storage.
+> Ler e escrever blob é **plano de dados**, e tem um sistema de autorização
+> próprio. São duas permissões diferentes sobre o mesmo recurso, e a mensagem de
+> erro não diz qual está faltando.
+>
+> O `storage.tf` já concede `Storage Blob Data Contributor` a você — então isso
+> aqui é quase sempre **propagação**, não configuração. Espere de 1 a 5 minutos e
+> repita. Para confirmar que o papel existe:
+>
 > ```bash
-> az role assignment create \
+> az role assignment list \
 >   --assignee $(az ad signed-in-user show --query id -o tsv) \
->   --role "Storage Blob Data Contributor" \
->   --scope $(az storage account show -n "$STORAGE_ACCOUNT_NAME" --query id -o tsv)
+>   --scope $(az storage account show -n "$STORAGE_ACCOUNT_NAME" --query id -o tsv) \
+>   --query "[].roleDefinitionName" -o tsv
 > ```
-> Aguardar 30s e tentar de novo.
+>
+> **Pergunta para discutir:** o próprio `az` sugere `--auth-mode key` como saída.
+> Funciona. Por que o lab não faz isso? Porque a chave da conta é
+> all-or-nothing — quem a tem lê, escreve e apaga tudo — e o log de auditoria
+> registra apenas "alguém com a chave", sem dizer quem. É exatamente o que a
+> disciplina inteira argumenta contra.
+
+> **Se aparecer `BlobNotFound` no script Python depois:** o upload acima não
+> chegou a acontecer (provavelmente falhou por permissão). Refaça o upload e
+> confirme na listagem antes de seguir.
 
 **✅ Checkpoint L₁:** Você consegue listar `produtos.csv` dentro do container `catalogo`?
 
