@@ -197,6 +197,30 @@ python3 scripts/gerar_audio_tts.py
 # Saída: /tmp/audio-teste.wav
 ```
 
+**Confira o áudio antes de seguir.** Se o TTS gerar um arquivo vazio ou truncado,
+o problema só vai aparecer na transcrição — e a suspeita recai sobre o STT, que
+não tem culpa nenhuma.
+
+```bash
+ls -la /tmp/audio-teste.wav   # esperado: ~100-300 KB, nunca 0
+file  /tmp/audio-teste.wav    # esperado: RIFF (little-endian) data, WAVE audio
+```
+
+Para **ouvir**, baixe com o comando embutido do Cloud Shell. Repare na cópia
+para o `$HOME` antes — o `download` **não alcança `/tmp`**, e falha com
+`{"error":{"message":"Unable to download file","code":"FileDownloadError"}}`
+mesmo com o arquivo existindo:
+
+```bash
+cp /tmp/audio-teste.wav ~/
+download ~/audio-teste.wav
+```
+
+> **`/tmp` é efêmero.** O Cloud Shell descarta o container quando a sessão
+> encerra, e o `/tmp` vai junto. Se voltar depois e o arquivo tiver sumido, é só
+> rodar o script de novo — leva segundos. Só o `~/clouddrive` persiste entre
+> sessões; o `$HOME` **não**.
+
 ### Passo 3 — Upload do áudio para Blob
 
 ```bash
@@ -229,6 +253,23 @@ az functionapp deployment source config-zip \
 ```
 
 Tempo: ~3-5 min. O Azure instala os pacotes do `requirements.txt` no servidor — não é necessário ter nada instalado localmente.
+
+> **Testar pelo portal, como alternativa ao `curl`:** Function App → **Funções**
+> → escolha a função → **Código + Teste** → **Testar/Executar**. Preencha os
+> parâmetros de consulta (para `analisar_reviews`: método `POST`, `limit` = `10`)
+> e veja o resultado na aba **Saída**.
+>
+> Vale conhecer os dois caminhos: quando o `curl` falha, testar pelo portal
+> separa "problema na Function" de "problema no seu terminal".
+>
+> Se o portal responder `{"message":"Failed to fetch"}`, é **CORS** — erro do
+> navegador, não da Function. O `terraform` já libera `portal.azure.com`, mas se
+> seu ambiente foi criado antes dessa correção:
+>
+> ```bash
+> RG=$(cd ~/qc-grupo-NN/aula04/terraform && terraform output -raw resource_group_name)
+> az functionapp cors add -g "$RG" -n "$FUNC_NAME" --allowed-origins https://portal.azure.com
+> ```
 
 ### Passo 5 — Testar STT
 
