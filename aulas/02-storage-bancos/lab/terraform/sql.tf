@@ -1,6 +1,23 @@
 # SQL Server (lógico)
+#
+# ATENÇÃO ao nome. Ele é um nome DNS GLOBAL (`<nome>.database.windows.net`), e a
+# Azure mantém a reserva por um tempo depois que uma criação falha. Se você
+# tentar recriar o MESMO nome em OUTRA região — que é exatamente o que acontece
+# quando o primeiro apply falha com ProvisioningDisabled e você troca de região —
+# a resposta é:
+#
+#   409 InvalidResourceLocation: The resource 'sql-qc-xxxx' already exists in
+#   location 'northcentralus'. A resource with the same name cannot be created
+#   in location 'canadacentral'.
+#
+# E não adianta procurar o recurso para apagar: ele não aparece em
+# `az resource list` nem em `az sql server list`. Só existe a reserva do nome.
+#
+# Amarrar um pedaço do nome à região resolve na origem: trocar de região passa a
+# gerar um nome novo, sem colisão. O hash é determinístico, então o nome não muda
+# sozinho entre applies na mesma região.
 resource "azurerm_mssql_server" "qc" {
-  name                         = "sql-qc-${random_string.sufixo.result}"
+  name                         = "sql-qc-${random_string.sufixo.result}-${substr(sha1(local.location_sql), 0, 4)}"
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = local.location_sql
   version                      = "12.0"
