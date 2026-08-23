@@ -113,23 +113,35 @@ limpar_fantasma() {
   [ -z "$rg" ] && rg="$(terraform -chdir="$DIR" output -raw resource_group_name 2>/dev/null)"
   [ -z "$rg" ] && return 0
 
+  local tipo ids s
   case "$servico" in
-    sql)
-      local s
-      for s in $(az sql server list -g "$rg" --query "[].name" -o tsv 2>/dev/null); do
-        log "    removendo SQL Server fantasma: $s"
-        az sql server delete -g "$rg" -n "$s" --yes -o none 2>/dev/null
-      done
-      ;;
-    cosmos)
-      local ids
-      ids="$(az resource list -g "$rg" --resource-type Microsoft.DocumentDB/databaseAccounts \
-             --query "[].id" -o tsv 2>/dev/null)"
-      for s in $ids; do
-        log "    removendo conta Cosmos fantasma: $(basename "$s")"
-        az resource delete --ids "$s" -o none 2>/dev/null
-      done
-      ;;
+    sql)    tipo="Microsoft.Sql/servers" ;;
+    cosmos) tipo="Microsoft.DocumentDB/databaseAccounts" ;;
+    *)      tipo="" ;;
+  esac
+
+  # SEMPRE pela API genérica de recursos, nunca pelo comando tipado.
+  # "az sql server list" e "az cosmosdb list" NÃO enxergam recurso em estado
+  # Failed — que é exatamente o estado do fantasma que precisamos remover.
+  # Usar o comando tipado aqui faz a limpeza reportar sucesso sem apagar nada,
+  # e o script entra em laço até esgotar as tentativas.
+  if [ -n "$tipo" ]; then
+    ids="$(az resource list -g "$rg" --resource-type "$tipo" --query "[].id" -o tsv 2>/dev/null)"
+    if [ -z "$ids" ]; then
+      log "    nada a remover (nenhum recurso $tipo no grupo)"
+      return 1
+    fi
+    for s in $ids; do
+      log "    removendo fantasma: $(basename "$s")"
+      az resource delete --ids "$s" -o none 2>/dev/null || {
+        log "    FALHA ao remover $(basename "$s")"
+        return 1
+      }
+    done
+    return 0
+  fi
+
+  case "$servico" in
     segredo)
       # Key Vault tem SOFT DELETE. Apagar o vault e recriá-lo com o mesmo nome
       # faz a Azure RESTAURAR o vault anterior, segredos inclusive — com valores
@@ -141,16 +153,54 @@ limpar_fantasma() {
       local kv seg
       kv="$(terraform -chdir="$DIR" output -raw key_vault_name 2>/dev/null)"
       [ -z "$kv" ] && return 0
+      local achou=1
       for seg in sql-connection-string cosmos-primary-key; do
         if az keyvault secret show --vault-name "$kv" --name "$seg" -o none 2>/dev/null; then
           log "    removendo segredo restaurado pelo soft delete: $seg"
           az keyvault secret delete --vault-name "$kv" --name "$seg" -o none 2>/dev/null
           sleep 10
           az keyvault secret purge --vault-name "$kv" --name "$seg" -o none 2>/dev/null
+          achou=0
         fi
       done
+      return $achou
       ;;
   esac
+  return 1
+}
+
+# ------------------------------------------------------------ classificação ---
+# Lê a saída do terraform e devolve uma linha "recurso|classe" por erro.
+#
+# Por que não dá para usar grep na saída inteira: um apply pode falhar em VÁRIOS
+# recursos ao mesmo tempo, com causas diferentes. Um grep global faz o erro do
+# Cosmos classificar o do SQL — e o script trata os dois errado.
+#
+# O terraform fecha cada bloco de erro com a linha "with <recurso>.<nome>,", que
+# vem DEPOIS do código do erro. Então acumulamos do "Error:" até essa linha.
+classificar_erros() {
+  local linha bloco="" recurso classe
+  while IFS= read -r linha; do
+    case "$linha" in
+      *"Error:"*) bloco="$linha" ;;
+      *)          [ -n "$bloco" ] && bloco="$bloco
+$linha" ;;
+    esac
+
+    case "$linha" in
+      *"with azurerm_"*|*"with terraform_data"*)
+        recurso="$(printf '%s' "$linha" | sed -n 's/.*with \([a-z_]*\)\..*/\1/p')"
+        classe="desconhecido"
+        case "$bloco" in
+          *InvalidResourceLocation*|*"already exists"*|*"needs to be imported"*) classe="fantasma" ;;
+          *ProvisioningDisabled*)                                               classe="regiao" ;;
+          *ServiceUnavailable*|*InsufficientResourcesAvailable*)                classe="transitorio" ;;
+        esac
+        [ -n "$recurso" ] && printf '%s|%s\n' "$recurso" "$classe"
+        bloco=""
+        ;;
+    esac
+  done
 }
 
 # ------------------------------------------------------------------ preflight ---
@@ -219,6 +269,24 @@ terraform -chdir="$DIR" init -input=false >> "$LOG" 2>&1 || {
 # ---------------------------------------------------------------------- loop ---
 
 declare -A JA_TENTADAS   # servico -> regioes que já falharam
+declare -A LIMPEZAS      # servico -> quantas vezes tentei remover fantasma
+
+# Move um serviço para a próxima região permitida. Devolve 0 se conseguiu.
+trocar_regiao() {   # $1=servico  $2=variavel do tfvars  $3=regiao atual
+  local servico="$1" var="$2" atual="$3" nova
+  JA_TENTADAS[$servico]="${JA_TENTADAS[$servico]:-} $atual"
+  nova="$(proxima_regiao "$servico" "${JA_TENTADAS[$servico]}")"
+
+  if [ -z "$nova" ]; then
+    log "  [$servico] acabaram as regiões permitidas. Já tentei:${JA_TENTADAS[$servico]}"
+    return 1
+  fi
+
+  log "  [$servico] '$atual' não serve — trocando para '$nova'"
+  limpar_fantasma "$servico" >/dev/null 2>&1
+  escrever_tfvars "$var" "$nova"
+  return 0
+}
 
 for (( tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++ )); do
   log
@@ -226,10 +294,23 @@ for (( tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++ )); do
   for v in location location_sql location_search location_aci location_cosmos; do
     log "   $v = $(ler_tfvars "$v")"
   done
+  log
+  log "   O apply leva de 6 a 10 minutos. Vai aparecendo linha a linha abaixo."
+  log "   NAO aperte Ctrl+C: interromper deixa recurso pela metade e o nome"
+  log "   reservado, o que da trabalho para limpar depois."
+  log
 
-  SAIDA="$(terraform -chdir="$DIR" apply -auto-approve -input=false 2>&1)"
-  RC=$?
-  printf '%s\n' "$SAIDA" >> "$LOG"
+  # ATENCAO: nao troque isto por SAIDA="$(terraform apply ...)".
+  # Command substitution engole a saida ate o comando terminar — e um apply de
+  # 6 a 10 minutos vira uma tela parada. O aluno conclui que travou e aperta
+  # Ctrl+C, que e justamente o que deixa recurso pela metade e gera fantasma.
+  # Com "tee" o progresso aparece ao vivo E fica gravado para a classificacao.
+  TMP="$(mktemp)"
+  terraform -chdir="$DIR" apply -auto-approve -input=false 2>&1 | tee "$TMP"
+  RC=${PIPESTATUS[0]}          # do terraform, nao do tee
+  SAIDA="$(cat "$TMP")"
+  cat "$TMP" >> "$LOG"
+  rm -f "$TMP"
 
   if [ $RC -eq 0 ]; then
     log
@@ -240,9 +321,9 @@ for (( tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++ )); do
     exit 0
   fi
 
-  # --- que recursos falharam? ---
-  RECURSOS="$(printf '%s\n' "$SAIDA" | sed -n 's/.*with \(azurerm_[a-z_]*\)\..*/\1/p' | sort -u)"
-  if [ -z "$RECURSOS" ]; then
+  # --- que recursos falharam, e por quê? (um par por erro) ---
+  ERROS="$(printf '%s\n' "$SAIDA" | classificar_erros | sort -u)"
+  if [ -z "$ERROS" ]; then
     log
     log "ERRO não reconhecido — não é problema de região. Últimas linhas:"
     printf '%s\n' "$SAIDA" | grep -E "^│ (Error|Message)" | head -5 | tee -a "$LOG"
@@ -251,43 +332,53 @@ for (( tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++ )); do
   fi
 
   MUDOU=0
-  for recurso in $RECURSOS; do
+  while IFS='|' read -r recurso classe; do
+    [ -z "$recurso" ] && continue
     servico="$(servico_do_recurso "$recurso")"
     var="$(var_do_servico "$servico")"
     atual="$(ler_tfvars "$var")"
 
-    # Nome ocupado por criação anterior que falhou, ou por soft delete do Key
-    # Vault. Limpa e repete NA MESMA região — trocar aqui só criaria um segundo
-    # fantasma.
-    if printf '%s' "$SAIDA" | grep -qE "InvalidResourceLocation|already exists|needs to be imported"; then
-      log "  [$servico] nome ocupado por criação anterior que falhou"
-      limpar_fantasma "$servico"
-      MUDOU=1
-      continue
-    fi
+    case "$classe" in
+      fantasma)
+        # Nome ocupado por criação anterior que falhou, ou por soft delete do
+        # Key Vault. Limpa e repete NA MESMA região — trocar aqui só criaria um
+        # segundo fantasma.
+        LIMPEZAS[$servico]=$(( ${LIMPEZAS[$servico]:-0} + 1 ))
+        if [ "${LIMPEZAS[$servico]}" -gt 2 ]; then
+          log "  [$servico] o nome segue ocupado após ${LIMPEZAS[$servico]} limpezas — desisto"
+          log "           apague o recurso à mão e rode de novo:"
+          log "           az resource list -g \$(terraform output -raw resource_group_name) -o table"
+          continue
+        fi
+        log "  [$servico] nome ocupado por criação anterior que falhou"
+        if limpar_fantasma "$servico"; then
+          MUDOU=1
+        else
+          log "  [$servico] não encontrei o que limpar — o erro pode ser de outra natureza"
+        fi
+        ;;
 
-    # 503 e 400 são transitórios: na primeira vez, repete na mesma região.
-    if printf '%s' "$SAIDA" | grep -qE "ServiceUnavailable|InsufficientResourcesAvailable" \
-       && [ -z "${JA_TENTADAS[$servico]:-}" ]; then
-      log "  [$servico] erro transitório em '$atual' — repetindo na mesma região"
-      JA_TENTADAS[$servico]="$atual"
-      MUDOU=1
-      continue
-    fi
+      transitorio)
+        # 503 e 400 dependem do minuto: na primeira vez, repete na mesma região.
+        if [ -z "${JA_TENTADAS[$servico]:-}" ]; then
+          log "  [$servico] erro transitório em '$atual' — repetindo na mesma região"
+          JA_TENTADAS[$servico]="$atual"
+          MUDOU=1
+        else
+          trocar_regiao "$servico" "$var" "$atual" && MUDOU=1
+        fi
+        ;;
 
-    JA_TENTADAS[$servico]="${JA_TENTADAS[$servico]:-} $atual"
-    nova="$(proxima_regiao "$servico" "${JA_TENTADAS[$servico]}")"
+      regiao)
+        trocar_regiao "$servico" "$var" "$atual" && MUDOU=1
+        ;;
 
-    if [ -z "$nova" ]; then
-      log "  [$servico] acabaram as regiões permitidas. Já tentei:${JA_TENTADAS[$servico]}"
-      continue
-    fi
-
-    log "  [$servico] '$atual' não serve — trocando para '$nova'"
-    limpar_fantasma "$servico"
-    escrever_tfvars "$var" "$nova"
-    MUDOU=1
-  done
+      *)
+        log "  [$servico] erro não relacionado a região:"
+        printf '%s\n' "$SAIDA" | grep -m2 -E "^│ (Error|Message|Status)" | sed 's/^/           /' | tee -a "$LOG"
+        ;;
+    esac
+  done <<< "$ERROS"
 
   if [ $MUDOU -eq 0 ]; then
     log
