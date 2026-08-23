@@ -26,11 +26,6 @@
 # Custo: ACR Basic ~ US$ 0,17/dia. O passo de limpeza no fim do lab remove.
 # ---------------------------------------------------------------------------
 
-# NAO use "set -e": carregado com "source", este arquivo roda no shell do aluno,
-# e um erro qualquer fecharia o terminal dele. Os comandos que importam sao
-# checados um a um.
-set -uo pipefail
-
 # "${BASH_SOURCE[0]}" e o caminho do arquivo; "$0" e o do processo. Sao
 # diferentes exatamente quando o arquivo foi carregado com "source".
 if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
@@ -38,6 +33,19 @@ if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
 else
   _QC_SOURCED=0
 fi
+
+# NAO use "set -e": carregado com "source", este arquivo roda no shell do aluno,
+# e um erro qualquer fecharia o terminal dele. Os comandos que importam sao
+# checados um a um.
+#
+# E, quando carregado com "source", as opcoes de shell tambem PERSISTEM na
+# sessao do aluno depois que o script termina. Um "set -u" esquecido faz
+# qualquer variavel nao definida virar erro fatal mais tarde — por exemplo:
+#   terraform destroy -var="sql_admin_password=$SQL_PASSWORD"
+#   bash: SQL_PASSWORD: unbound variable
+# Por isso guardamos o estado original e restauramos no fim.
+_QC_OPTS_ORIGINAIS="$(set +o)"
+set -uo pipefail
 
 # Le 'chave = "valor"' do terraform.tfvars, ignorando comentarios.
 _qc_ler_tfvars() {
@@ -213,8 +221,11 @@ _qc_setup_registry
 _QC_RC=$?
 
 if [ "$_QC_SOURCED" = "1" ]; then
+  # Devolve o shell do aluno exatamente como estava: sem funcoes nossas
+  # sobrando e, principalmente, sem "set -u" ligado por tabela.
+  eval "$_QC_OPTS_ORIGINAIS"
   unset -f _qc_setup_registry _qc_ler_tfvars
-  unset _QC_SOURCED
+  unset _QC_SOURCED _QC_OPTS_ORIGINAIS
   # "return" so vale em arquivo carregado com source — nao troque por "exit",
   # ou o terminal do aluno fecha.
   return $_QC_RC
