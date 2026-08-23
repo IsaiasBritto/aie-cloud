@@ -239,10 +239,17 @@ fi
 # senha do SQL — gera se faltar, e mostra UMA vez
 if [ -z "${TF_VAR_sql_admin_password:-}" ]; then
   export TF_VAR_sql_admin_password="$(openssl rand -base64 24)"
-  log
-  log "Senha do SQL gerada (ANOTE, ela não é gravada em disco):"
-  log "    $TF_VAR_sql_admin_password"
-  log
+  # ATENCAO: "echo", nao "log". A funcao log() faz tee para o .provisionar.log,
+  # e a senha acabaria gravada em disco — justamente o contrario do que a
+  # mensagem promete. Aqui ela vai SO para o terminal.
+  echo
+  echo "Senha do SQL gerada (ANOTE — ela nao e gravada em lugar nenhum):"
+  echo "    $TF_VAR_sql_admin_password"
+  echo
+  echo "Se a sessao cair, exporte exatamente esta senha antes de rodar de novo:"
+  echo "    export TF_VAR_sql_admin_password=\"<a senha acima>\""
+  echo
+  log "(senha do SQL gerada nesta execucao — valor omitido do log)"
 fi
 
 # registry do MongoDB — sem ele o ACI puxa do Docker Hub e pode dar 409
