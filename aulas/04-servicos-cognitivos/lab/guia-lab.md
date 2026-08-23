@@ -27,14 +27,9 @@ Wrap-up      — terraform destroy + verificação custo zero                   
 
 ## Preparação (5 min — antes do L₁)
 
-
 ```bash
-# Passo 1 — Clone e atualize o repositório
-cd ~
-git clone https://github.com/isaiasbritto/aie-cloud.git 2>/dev/null || (cd ~/aie-cloud && git pull origin main)
-
 # Confirmar autenticação
-az account show --query "{nome:name, id:id}"
+az account show --query "{nome:name, id:id}" -o table
 
 # Criar pasta de trabalho do grupo
 mkdir -p ~/qc-grupo-NN/aula04
@@ -92,11 +87,17 @@ echo "Function:    $HOSTNAME"
 No portal Azure → Resource Group `rg-qc-aula04-*`:
 
 - 2 × Storage Account (Function runtime + dados do lab)
-- 1 × App Service Plan (Y1 Consumption)
+- 1 × App Service Plan (**FC1 — Flex Consumption**)
 - 1 × **Cognitive Services** (multi-service S0 com custom subdomain)
 - 1 × **Key Vault** (com segredo `ai-services-key`)
 - 1 × **Container Group ACI** (MongoDB 7.0 + Mongo Express)
-- 1 × **Function App** (Python 3.11, Managed Identity SystemAssigned)
+- 1 × **Function App** (Python 3.12, Managed Identity SystemAssigned)
+
+> **Por que FC1 e não o Y1 clássico:** contas Azure for Students têm cota **zero**
+> do plano Y1, e o erro que a Azure devolve é um `401 Unauthorized` — que parece
+> problema de autenticação, mas a mensagem diz `Current Limit (Y1 VMs): 0`. O Y1
+> também está sendo aposentado em set/2028. FC1 é o sucessor, o mesmo usado na
+> Aula 3.
 
 Em `cognitive.tf`, observe **`custom_subdomain_name`** — é o que permite Managed Identity autenticar no AI Services.
 
@@ -106,9 +107,18 @@ Em `cognitive.tf`, observe **`custom_subdomain_name`** — é o que permite Mana
 cd ~/qc-grupo-NN/aula04
 pip install --user pymongo -q
 
-export MONGO_IP  # já exportado acima
+# Reexporta por garantia: se você abriu um terminal novo, ou a sessão do Cloud
+# Shell caiu depois do Passo 2, a variável não existe mais.
+# ATENÇÃO: `export MONGO_IP` sem `=valor` NÃO define nada — apenas marca a
+# variável para exportação. Se ela estiver vazia, continua vazia.
+export MONGO_IP=$(cd terraform && terraform output -raw mongodb_public_ip)
+echo "MONGO_IP=$MONGO_IP"
+
 python3 scripts/semear_reviews.py
 ```
+
+> **Se der timeout de conexão**, o ACI ainda está subindo — o MongoDB leva cerca
+> de um minuto depois do `apply`. Espere e repita.
 
 Saída esperada:
 ```
