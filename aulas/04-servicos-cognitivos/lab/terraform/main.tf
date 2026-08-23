@@ -1,8 +1,12 @@
 terraform {
   required_providers {
     azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+      source = "hashicorp/azurerm"
+      # 4.x e obrigatorio: o lab usa azurerm_function_app_flex_consumption
+      # (plano FC1), que nao existe na 3.x. O plano Y1 antigo nao serve porque
+      # contas Azure for Students tem cota ZERO de Y1:
+      #   401 Unauthorized ... Current Limit (Y1 VMs): 0
+      version = "~> 4.0"
     }
     random = {
       source  = "hashicorp/random"
