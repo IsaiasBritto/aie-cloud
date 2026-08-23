@@ -185,9 +185,8 @@ az storage blob upload \
   --name audio-teste.wav \
   --file /tmp/audio-teste.wav \
   --auth-mode login \
-  --overwrite
-
-echo "✓ audio-teste.wav no container 'audios'"
+  --overwrite \
+  && echo "✓ audio-teste.wav no container 'audios'"
 ```
 
 ### Passo 4 — Deploy da Function App
@@ -290,9 +289,8 @@ az storage blob upload \
   --name produto.jpg \
   --file /tmp/produto.jpg \
   --auth-mode login \
-  --overwrite
-
-echo "✓ produto.jpg no container 'imagens'"
+  --overwrite \
+  && echo "✓ produto.jpg no container 'imagens'"
 ```
 
 ### Passo 2 — Testar Vision
