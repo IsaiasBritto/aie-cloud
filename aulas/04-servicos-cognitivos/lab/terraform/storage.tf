@@ -11,10 +11,10 @@ resource "azurerm_storage_account" "data" {
 
 resource "azurerm_storage_container" "audios" {
   name                 = "audios"
-  storage_account_name = azurerm_storage_account.data.name
+  storage_account_id = azurerm_storage_account.data.id
 }
 
 resource "azurerm_storage_container" "imagens" {
   name                 = "imagens"
-  storage_account_name = azurerm_storage_account.data.name
+  storage_account_id = azurerm_storage_account.data.id
 }
