@@ -16,6 +16,7 @@ Atividade 1  — Provisionar recursos e semear MongoDB com reviews QC           
 Atividade 2  — Speech-to-Text com áudio gerado via TTS                            ~30 min  (L₂)
 Atividade 3  — Language: pipeline de reviews QC (MongoDB ACI)                     ~30 min  (L₃)
 Atividade 4  — Vision: classificação + OCR de imagem de produto                   ~20 min  (L₄)
+Atividade 5  — Front-end Streamlit: os 4 serviços + comparação de arquitetura     ~30 min  (L₅)
 Wrap-up      — terraform destroy + verificação custo zero                         ~5 min
 ```
 
@@ -380,6 +381,85 @@ Esperado:
 > **Nota sobre Caption:** O recurso `Caption` da Vision 4.0 não está disponível em `eastus2`. Para Caption/Dense Captions, use `eastus`, `westus2`, ou `westeurope` (verifique a política de região da sua conta Azure for Students).
 
 **✅ Checkpoint L₄:** Imagem analisada com tags retornadas?
+
+---
+
+## Atividade 5 — Front-end: QC Cognitive Studio (~30 min)
+
+**Objetivo:** sair do `curl` e ver os quatro serviços funcionando numa interface
+— e, no caminho, comparar **duas arquiteturas de acesso à IA** que produzem o
+mesmo resultado com riscos completamente diferentes.
+
+### Passo 1 — Rodar na SUA máquina
+
+Não é no Cloud Shell. O navegador só libera o microfone em `localhost` ou HTTPS,
+e o Cloud Shell não oferece nenhum dos dois.
+
+```bash
+# no seu notebook, dentro do repositório clonado
+cd aulas/04-servicos-cognitivos/lab/app
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Abre em `http://localhost:8501`.
+
+### Passo 2 — Preencher a barra lateral
+
+No Cloud Shell, colete os valores:
+
+```bash
+cd ~/qc-grupo-NN/aula04
+source exportar-outputs.sh
+
+echo "FUNC_HOSTNAME : $FUNC_HOSTNAME"
+echo "AI_ENDPOINT   : $AI_ENDPOINT"
+echo "AI_REGION     : $AI_REGION"
+echo "AI_KEY        : $(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
+                          --name ai-services-key --query value -o tsv)"
+```
+
+**Comece preenchendo só o Function App.** Deixe `AI_ENDPOINT` e `AI_KEY` em
+branco, escolha **Via Function App** e use as três primeiras abas normalmente.
+Elas funcionam. Isso é a demonstração: o cliente não tem credencial nenhuma.
+
+Só depois preencha a chave e experimente **Comparar os dois**.
+
+### Passo 3 — Explorar
+
+| Aba | O que fazer |
+|---|---|
+| 🔊 Texto → Fala | Sintetize uma frase. Baixe o WAV — ele serve de entrada para a aba seguinte |
+| 🎤 Fala → Texto | Grave do microfone ou envie o WAV baixado |
+| 🖼️ Visão + Espacial | Envie uma foto de produto. Veja tags, OCR e as caixas desenhadas sobre a imagem |
+| 🏛️ Arquitetura | A comparação e as perguntas de discussão |
+
+> **Se a transcrição do microfone vier vazia com `200 OK`:** o Speech REST aceita
+> **WAV PCM 16 kHz mono**, e a gravação do navegador costuma sair em WebM/Opus. É
+> falha silenciosa, não erro. Teste com o WAV da aba de TTS para separar
+> "formato errado" de "serviço não funciona" — esse diagnóstico é metade do
+> exercício.
+
+### Passo 4 — Comparar (10 min, em grupo)
+
+Marque **Comparar os dois** e rode a mesma operação. Os resultados são iguais; os
+tempos, não. O caminho direto é mais rápido — tem um salto a menos.
+
+**A pergunta que fecha a aula:** se o caminho direto é mais rápido e mais simples,
+por que a arquitetura da disciplina insiste no outro?
+
+Discuta com a tabela da aba **Arquitetura** à vista:
+
+1. Este app roda no seu notebook. Se virasse uma página web pública, o caminho
+   direto continuaria possível? O que aconteceria com a chave dentro do
+   JavaScript entregue ao navegador?
+2. A Function usa Managed Identity para Vision e **chave** para Speech. Por que a
+   diferença? (dica: a role `Cognitive Services Speech User`)
+3. Um aluno commita o projeto no GitHub com a chave preenchida. Remover o arquivo
+   e commitar de novo resolve?
+
+**✅ Checkpoint L₅:** As três primeiras abas funcionam com `AI_KEY` em branco?
+Você consegue explicar por quê?
 
 ---
 
