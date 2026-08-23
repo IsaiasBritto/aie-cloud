@@ -27,7 +27,12 @@ Wrap-up      — terraform destroy + verificação custo zero                   
 
 ## Preparação (5 min — antes do L₁)
 
+
 ```bash
+# Passo 1 — Clone e atualize o repositório
+cd ~
+git clone https://github.com/isaiasbritto/aie-cloud.git 2>/dev/null || (cd ~/aie-cloud && git pull origin main)
+
 # Confirmar autenticação
 az account show --query "{nome:name, id:id}" -o
 
