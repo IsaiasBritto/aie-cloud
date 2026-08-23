@@ -51,10 +51,10 @@ output "mongodb_connection_string" {
 # Function
 output "function_app_name" {
   description = "Nome da Function App"
-  value       = azurerm_linux_function_app.fn.name
+  value       = azurerm_function_app_flex_consumption.fn.name
 }
 
 output "function_app_hostname" {
   description = "URL HTTPS da Function App"
-  value       = "https://${azurerm_linux_function_app.fn.default_hostname}"
+  value       = "https://${azurerm_function_app_flex_consumption.fn.default_hostname}"
 }
