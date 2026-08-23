@@ -595,17 +595,44 @@ O script já demonstra 3 tipos de busca:
 
 ```bash
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-terraform destroy -auto-approve -var="sql_admin_password=$SQL_PASSWORD"
+terraform destroy -auto-approve
 ```
 
 Tempo: ~5 minutos.
 
-### Passo 2 — Verificar custo zero
+> **Não precisa passar a senha.** O Terraform lê `TF_VAR_sql_admin_password` do
+> ambiente sozinho. Se a sessão caiu e a variável sumiu, qualquer valor serve —
+> a senha não é verificada na exclusão:
+>
+> ```bash
+> terraform destroy -auto-approve -var="sql_admin_password=NaoImporta123!"
+> ```
+
+### Passo 2 — Apagar o registry (fica fora do destroy)
+
+O ACR mora em `rg-qc-registry`, um resource group **separado** do lab — de
+propósito, porque se ele estivesse no mesmo RG o `terraform destroy` falharia com
+*"the Resource Group still contains Resources"*, já que o Terraform não conhece
+esse recurso.
+
+O outro lado da moeda: ele **sobrevive ao destroy** e continua custando cerca de
+US$ 0,17/dia. Apague ao fim da aula:
+
+```bash
+az group delete -n rg-qc-registry --yes --no-wait
+```
+
+### Passo 3 — Verificar custo zero
 
 1. Portal → **Cost Management** → **Análise de custo** → filtrar por hoje
 2. Total deve estar próximo de $0 (serverless/auto-pause + Search free + duração curta do lab)
+3. Confirme que não sobrou nada:
 
-### Passo 3 — Commitar progresso no seu fork
+```bash
+az group list --query "[?starts_with(name,'rg-qc')].{nome:name, estado:properties.provisioningState}" -o table
+```
+
+### Passo 4 — Commitar progresso no seu fork
 
 No seu fork (não no repo `aie-cloud` clonado direto):
 
