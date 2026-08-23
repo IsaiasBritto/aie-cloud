@@ -337,7 +337,24 @@ def stt(req: func.HttpRequest) -> func.HttpResponse:
             data=audio,
             timeout=30,
         )
-        resp.raise_for_status()
+
+        # NAO use raise_for_status aqui. O Speech responde 400 quando o audio nao
+        # esta em WAV PCM 16 kHz mono, e o motivo vem no CORPO da resposta. Deixar
+        # a excecao subir transforma um diagnostico claro num 500 mudo — foi
+        # exatamente o que aconteceu na primeira versao desta rota.
+        if resp.status_code >= 400:
+            return func.HttpResponse(
+                json.dumps({
+                    "erro": "Speech recusou o audio",
+                    "http": resp.status_code,
+                    "detalhe": resp.text[:500],
+                    "dica": ("O endpoint REST aceita WAV PCM 16 bits, MONO, 8 ou 16 kHz. "
+                             "Gravacao de navegador costuma sair em 48 kHz."),
+                    "bytes_recebidos": len(audio),
+                }, ensure_ascii=False),
+                mimetype="application/json", status_code=400,
+            )
+
         data = resp.json()
 
         transcricao = ""
