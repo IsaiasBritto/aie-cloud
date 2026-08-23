@@ -36,13 +36,25 @@ mkdir -p ~/qc-grupo-NN/aula04
 cd ~/qc-grupo-NN/aula04
 
 # Copiar os arquivos do lab
-cp -r ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform terraform/
-cp -r ~/aie-cloud/aulas/04-servicos-cognitivos/lab/function  function/
-cp -r ~/aie-cloud/aulas/04-servicos-cognitivos/lab/scripts   scripts/
+LAB=~/aie-cloud/aulas/04-servicos-cognitivos/lab
+cp -r $LAB/terraform terraform/
+cp -r $LAB/function  function/
+cp -r $LAB/scripts   scripts/
+cp    $LAB/exportar-outputs.sh .
+
+ls
+# terraform/  function/  scripts/  exportar-outputs.sh
 
 cd terraform
 code .
 ```
+
+> **Se você já criou a pasta antes desta versão do guia**, o
+> `exportar-outputs.sh` não está lá. Copie só ele:
+>
+> ```bash
+> cp ~/aie-cloud/aulas/04-servicos-cognitivos/lab/exportar-outputs.sh ~/qc-grupo-NN/aula04/
+> ```
 
 ---
 
@@ -68,19 +80,25 @@ Tempo: ~5-8 min. Observe os recursos sendo criados no portal Azure em paralelo.
 ### Passo 2 — Exportar outputs
 
 ```bash
-export AI_ENDPOINT=$(terraform output -raw ai_endpoint)
-export AI_REGION="eastus2"
-export KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
-export DATA_STORAGE=$(terraform output -raw data_storage_account_name)
-export MONGO_IP=$(terraform output -raw mongodb_public_ip)
-export FUNC_NAME=$(terraform output -raw function_app_name)
-export HOSTNAME=$(terraform output -raw function_app_hostname)
-
-echo "AI Services: $AI_ENDPOINT"
-echo "MongoDB IP:  $MONGO_IP"
-echo "Mongo Express: http://$MONGO_IP:8081"
-echo "Function:    $HOSTNAME"
+cd ~/qc-grupo-NN/aula04
+source exportar-outputs.sh
 ```
+
+Ele imprime todos os valores. Qualquer campo `VAZIO` significa que o `apply` não
+completou — resolva antes de seguir.
+
+> **Repita este comando sempre que abrir um terminal novo.** O Cloud Shell
+> encerra a sessão após 20 min de inatividade e todos os exports somem junto. Os
+> erros que aparecem depois não dizem isso:
+>
+> | Variável vazia | Erro que você vê |
+> |---|---|
+> | `KEY_VAULT_NAME` | `az`: `URL has an invalid label` |
+> | `MONGO_IP` | o script Python pede o IP e encerra |
+> | `AI_ENDPOINT` | erro de conexão, sem explicação |
+>
+> **Tem que ser `source`, não `bash`.** Script executado com `bash` roda em outro
+> processo, e as variáveis morrem com ele.
 
 ### Passo 3 — Conferir o que foi provisionado
 
@@ -107,12 +125,9 @@ Em `cognitive.tf`, observe **`custom_subdomain_name`** — é o que permite Mana
 cd ~/qc-grupo-NN/aula04
 pip install --user pymongo -q
 
-# Reexporta por garantia: se você abriu um terminal novo, ou a sessão do Cloud
-# Shell caiu depois do Passo 2, a variável não existe mais.
-# ATENÇÃO: `export MONGO_IP` sem `=valor` NÃO define nada — apenas marca a
-# variável para exportação. Se ela estiver vazia, continua vazia.
-export MONGO_IP=$(cd terraform && terraform output -raw mongodb_public_ip)
-echo "MONGO_IP=$MONGO_IP"
+# Se você abriu um terminal novo desde o Passo 2, recarregue os outputs:
+#   source exportar-outputs.sh
+echo "MONGO_IP=${MONGO_IP:-VAZIO}"
 
 python3 scripts/semear_reviews.py
 ```
@@ -193,12 +208,12 @@ Tempo: ~3-5 min. O Azure instala os pacotes do `requirements.txt` no servidor �
 
 ```bash
 # Aguardar cold start da Function
-until curl -s -o /dev/null -w "%{http_code}" "$HOSTNAME/api/health" | grep -q "200"; do
+until curl -s -o /dev/null -w "%{http_code}" "$FUNC_HOSTNAME/api/health" | grep -q "200"; do
   echo "aguardando..."; sleep 5; done
 echo "Function online!"
 
 # Transcrever
-curl -s "$HOSTNAME/api/transcrever?blob=audio-teste.wav&idioma=pt-BR" | python3 -m json.tool
+curl -s "$FUNC_HOSTNAME/api/transcrever?blob=audio-teste.wav&idioma=pt-BR" | python3 -m json.tool
 ```
 
 Esperado:
@@ -223,7 +238,7 @@ Esperado:
 ### Passo 1 — Chamar a rota `/analisar-reviews`
 
 ```bash
-curl -s -X POST "$HOSTNAME/api/analisar-reviews?limit=10" | python3 -m json.tool
+curl -s -X POST "$FUNC_HOSTNAME/api/analisar-reviews?limit=10" | python3 -m json.tool
 ```
 
 Esperado:
@@ -279,7 +294,7 @@ echo "✓ produto.jpg no container 'imagens'"
 ### Passo 2 — Testar Vision
 
 ```bash
-curl -s "$HOSTNAME/api/analisar-imagem?blob=produto.jpg" | python3 -m json.tool
+curl -s "$FUNC_HOSTNAME/api/analisar-imagem?blob=produto.jpg" | python3 -m json.tool
 ```
 
 Esperado:
