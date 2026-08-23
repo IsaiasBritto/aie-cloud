@@ -1,0 +1,4 @@
+numpy
+pillow>=10.0
+requests>=2.31
+streamlit>=1.40
