@@ -34,7 +34,7 @@ cd ~
 git clone https://github.com/isaiasbritto/aie-cloud.git 2>/dev/null || (cd ~/aie-cloud && git pull origin main)
 
 # Confirmar autenticação
-az account show --query "{nome:name, id:id}" -o
+az account show --query "{nome:name, id:id}"
 
 # Criar pasta de trabalho do grupo
 mkdir -p ~/qc-grupo-NN/aula04
