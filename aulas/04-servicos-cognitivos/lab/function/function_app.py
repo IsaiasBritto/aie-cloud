@@ -5,6 +5,15 @@ Rotas cognitivas via Managed Identity (Language, Vision) e Key Vault (Speech):
   GET  /api/transcrever?blob=<nome>&container=audios&idioma=pt-BR
   POST /api/analisar-reviews?limit=10
   GET  /api/analisar-imagem?blob=<nome>&container=imagens
+
+Rotas que recebem o arquivo NO CORPO da requisicao (usadas pelo app Streamlit):
+  POST /api/tts     JSON {texto, voz, idioma}  -> audio/wav
+  POST /api/stt     corpo = bytes do WAV       -> JSON {transcricao}
+  POST /api/visao   corpo = bytes da imagem    -> JSON {tags, texto, objetos}
+
+As rotas com "blob=" leem do Storage por Managed Identity e servem as atividades
+do lab. As rotas acima recebem os bytes direto, para que um front-end nao precise
+de credencial de Storage — so fala HTTP com a Function.
 """
 import json
 import logging
@@ -49,7 +58,10 @@ def health(req: func.HttpRequest) -> func.HttpResponse:
         json.dumps({
             "status": "ok",
             "service": "qc-cognitive",
-            "rotas": ["/api/health", "/api/transcrever", "/api/analisar-reviews", "/api/analisar-imagem"],
+            "rotas": [
+                "/api/health", "/api/transcrever", "/api/analisar-reviews", "/api/analisar-imagem",
+                "/api/tts", "/api/stt", "/api/visao",
+            ],
             "ai_endpoint": AI_ENDPOINT,
         }),
         mimetype="application/json",
@@ -228,4 +240,180 @@ def analisar_imagem(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logging.exception("Falha em /analisar-imagem")
+        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+
+
+# ===========================================================================
+# Rotas para o front-end (app Streamlit da Atividade 5)
+#
+# Diferenca das rotas acima: recebem o arquivo NO CORPO, em vez de um nome de
+# blob. Isso e deliberado — assim o front-end nao precisa de credencial de
+# Storage nenhuma. Ele fala HTTP com a Function, e quem tem identidade para
+# chamar Vision, Speech e Storage e a Function, nao o cliente.
+# ===========================================================================
+
+VOZES_PT = {
+    "Antonio (masculina)": "pt-BR-AntonioNeural",
+    "Francisca (feminina)": "pt-BR-FranciscaNeural",
+    "Thalita (feminina)": "pt-BR-ThalitaNeural",
+}
+
+
+@app.route(route="tts", methods=["POST"])
+def tts(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Texto -> Fala. Devolve o WAV em bytes.
+    POST /api/tts  {"texto": "...", "voz": "pt-BR-AntonioNeural", "idioma": "pt-BR"}
+    """
+    try:
+        body = req.get_json()
+        texto = (body.get("texto") or "").strip()
+        if not texto:
+            return func.HttpResponse(
+                json.dumps({"erro": "campo 'texto' vazio"}),
+                mimetype="application/json", status_code=400,
+            )
+
+        voz    = body.get("voz", "pt-BR-AntonioNeural")
+        idioma = body.get("idioma", "pt-BR")
+
+        # escape de XML: sem isso, um "&" ou "<" no texto do aluno quebra o SSML
+        # com um erro 400 que nao explica nada.
+        seguro = (texto.replace("&", "&amp;")
+                       .replace("<", "&lt;")
+                       .replace(">", "&gt;"))
+
+        ssml = (
+            f"<speak version='1.0' xml:lang='{idioma}'>"
+            f"<voice xml:lang='{idioma}' name='{voz}'>{seguro}</voice>"
+            f"</speak>"
+        )
+
+        resp = requests.post(
+            f"https://{AI_REGION}.tts.speech.microsoft.com/cognitiveservices/v1",
+            headers={
+                "Authorization": f"Bearer {_get_speech_token(AI_REGION)}",
+                "Content-Type": "application/ssml+xml",
+                "X-Microsoft-OutputFormat": "riff-16khz-16bit-mono-pcm",
+                "User-Agent": "qc-aula04",
+            },
+            data=ssml.encode("utf-8"),
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+        return func.HttpResponse(resp.content, mimetype="audio/wav", status_code=200)
+
+    except Exception as e:
+        logging.exception("Falha em /tts")
+        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+
+
+@app.route(route="stt", methods=["POST"])
+def stt(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Fala -> Texto. Recebe os bytes do WAV no corpo.
+    POST /api/stt?idioma=pt-BR   (corpo = audio/wav)
+    """
+    try:
+        idioma = req.params.get("idioma", "pt-BR")
+        audio = req.get_body()
+        if not audio:
+            return func.HttpResponse(
+                json.dumps({"erro": "corpo vazio — envie os bytes do WAV"}),
+                mimetype="application/json", status_code=400,
+            )
+
+        resp = requests.post(
+            f"https://{AI_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1",
+            headers={
+                "Authorization": f"Bearer {_get_speech_token(AI_REGION)}",
+                # O Speech REST so aceita WAV PCM 16 kHz mono. Áudio de outro
+                # formato retorna 400 ou transcricao vazia.
+                "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+                "Accept": "application/json",
+            },
+            params={"language": idioma, "format": "detailed"},
+            data=audio,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        transcricao = ""
+        if data.get("NBest"):
+            transcricao = data["NBest"][0].get("Display", "")
+        elif "DisplayText" in data:
+            transcricao = data["DisplayText"]
+
+        return func.HttpResponse(
+            json.dumps({
+                "transcricao": transcricao,
+                "idioma": idioma,
+                "status_stt": data.get("RecognitionStatus", ""),
+                "bytes_recebidos": len(audio),
+            }, ensure_ascii=False),
+            mimetype="application/json",
+        )
+    except Exception as e:
+        logging.exception("Falha em /stt")
+        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+
+
+@app.route(route="visao", methods=["POST"])
+def visao(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Analise de imagem. Recebe os bytes da imagem no corpo.
+    POST /api/visao   (corpo = image/jpeg ou image/png)
+
+    Devolve tags, texto (OCR) e objetos com bounding box em PIXELS, mais as
+    dimensoes da imagem — o cliente precisa das duas coisas para desenhar as
+    caixas na escala certa.
+    """
+    try:
+        from azure.ai.vision.imageanalysis import ImageAnalysisClient
+        from azure.ai.vision.imageanalysis.models import VisualFeatures
+
+        image_data = req.get_body()
+        if not image_data:
+            return func.HttpResponse(
+                json.dumps({"erro": "corpo vazio — envie os bytes da imagem"}),
+                mimetype="application/json", status_code=400,
+            )
+
+        vision_client = ImageAnalysisClient(endpoint=AI_ENDPOINT, credential=_credential)
+        result = vision_client.analyze(
+            image_data=image_data,
+            visual_features=[VisualFeatures.TAGS, VisualFeatures.READ, VisualFeatures.OBJECTS],
+        )
+
+        tags = [{"name": t.name, "confidence": round(t.confidence, 3)}
+                for t in (result.tags.list if result.tags else [])]
+
+        texto = ""
+        if result.read:
+            texto = "\n".join(line.text for block in result.read.blocks for line in block.lines)
+
+        objetos = []
+        if result.objects and result.objects.list:
+            for obj in result.objects.list:
+                b = obj.bounding_box
+                objetos.append({
+                    "label": obj.tags[0].name if obj.tags else "objeto",
+                    "confidence": round(obj.tags[0].confidence, 3) if obj.tags else None,
+                    "box": {"x": b.x, "y": b.y, "w": b.width, "h": b.height},
+                })
+
+        return func.HttpResponse(
+            json.dumps({
+                "tags": tags[:15],
+                "texto": texto,
+                "objetos": objetos,
+                "largura": result.metadata.width,
+                "altura": result.metadata.height,
+            }, ensure_ascii=False),
+            mimetype="application/json",
+        )
+    except Exception as e:
+        logging.exception("Falha em /visao")
         return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
