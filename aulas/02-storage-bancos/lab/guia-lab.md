@@ -202,6 +202,7 @@ aparecem na hora de criar, porque dependem da sua assinatura e do minuto:
 | `400 InsufficientResources` | cota do SKU free esgotada agora | idem |
 | `409 InvalidResourceLocation` | criação anterior que falhou deixou o nome ocupado | apaga o recurso fantasma e repete |
 | `already exists / needs to be imported` | o **soft delete** do Key Vault restaurou segredos antigos junto com o vault | apaga e faz *purge* do segredo, e repete |
+| `409 InvalidResourceLocation` no **SQL** sem recurso para apagar | nome de SQL Server é DNS global e a reserva sobrevive à falha, presa à região antiga | o `sql.tf` embute um hash da região no nome, então trocar de região já gera nome novo |
 
 Ele troca a região **por serviço**, nunca a região geral — o Cosmos pode ir para
 `eastus2` enquanto o resto fica onde está, sem recriar nada. As candidatas saem
@@ -640,7 +641,7 @@ Esses recursos serão consumidos por:
 | AI Search: `Operation returned an invalid status 'Forbidden'` ao indexar | Serviço aceitava só API key no data-plane (token AAD recusado) | Já resolvido no `search.tf` (`authentication_failure_mode`). Em serviço criado antes do fix: `terraform apply` de novo |
 | AI Search: `Semantic search is not enabled for this service` | Semantic ranker não habilitado | Já resolvido via `azapi_update_resource.search_semantic` em `search.tf`. Em serviço antigo: `terraform apply` de novo (ou `az search service update --name <svc> -g <rg> --semantic-search free`) |
 | `terraform destroy` falha em Key Vault | Purge protection ou soft-delete | Confirmar `purge_protection_enabled = false` no `keyvault.tf` (já está) |
-| `AuthorizationPermissionMismatch` no upload Blob | Sem role data plane no Storage | Conceder `Storage Blob Data Contributor` (ver Passo 2 da L₁) |
+| `AuthorizationPermissionMismatch` ou "You do not have the required permissions" no upload de blob | Ser Owner é plano de **controle**; ler/escrever blob exige papel de **dados**. São dois sistemas de autorização sobre o mesmo recurso | O `storage.tf` já concede `Storage Blob Data Contributor` a você. Se acabou de provisionar, é só **propagação**: aguarde 1 a 5 min e repita. Confirme com `az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv) --scope $(az storage account show -n "$STORAGE_ACCOUNT_NAME" --query id -o tsv) -o table` |
 | MongoDB: `ServerSelectionTimeoutError` após 100s | ACI ainda inicializando | Aguardar 1 min e rodar `python3 popular_reviews_mongo.py` de novo |
 | MongoDB: `Authentication failed` | `MONGO_IP` não exportado ou IP errado | `echo $MONGO_IP` — se vazio: `export MONGO_IP=$(terraform output -raw mongodb_public_ip)` |
 | Mongo Express: página não carrega | ACI ainda subindo ou porta 8081 | Aguardar 2 min; confirmar URL: `terraform output mongo_express_url` |
