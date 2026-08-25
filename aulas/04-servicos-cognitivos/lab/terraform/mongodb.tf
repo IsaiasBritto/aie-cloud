@@ -1,148 +1,77 @@
 # ---------------------------------------------------------------------------
-# MongoDB + Mongo-Express via Azure Container Instances.
+# Mesmo raciocínio do `purgar_ai_soft_deleted` no cognitive.tf, aplicado ao
+# Key Vault — mas com um sintoma bem diferente, e por isso mais confuso.
 #
-# O REGISTRY É CRIADO PELO PRÓPRIO TERRAFORM, de propósito.
+# `recover_soft_deleted_key_vaults` é `true` por padrão no provider. Então, se o
+# vault está em soft-delete, o Terraform NÃO reclama: ele RECUPERA o vault
+# antigo, com os segredos antigos dentro. O `apply` só quebra um passo depois:
 #
-# Puxar `mongo:7.0` direto do Docker Hub funciona quando uma pessoa testa
-# sozinha, e falha quando a turma roda junto:
+#   Error: A resource with the ID ".../secrets/ai-services-key" already exists
+#          - to be managed via Terraform this resource needs to be imported
 #
-#   409 RegistryErrorResponse: An error response is received from the docker
-#   registry 'index.docker.io'. Please retry later.
-#
-# O limite anônimo do Docker Hub é de 100 pulls por 6 h POR IP, e o ACI sai por
-# IPs de saída compartilhados da região — ou seja, a cota é da turma inteira, não
-# do aluno. Com um ACR próprio, o pull sai pelo backbone da Azure e o problema
-# desaparece.
-#
-# A versão anterior resolvia isso com um script (`setup-registry-aluno.sh`) que o
-# aluno tinha de rodar ANTES do apply, mais um `source` para carregar variáveis.
-# Na prática, esquecer qualquer um dos dois reproduzia exatamente o mesmo 409 —
-# e a mensagem não dá nenhuma pista de que faltou um passo anterior.
-# Trazer isso para dentro do Terraform elimina o pré-requisito: um `apply` só.
-#
-# Custo: ACR Basic ~US$ 0,17/dia, destruído junto com o lab.
+# Ou seja, o erro aparece no SEGREDO, enquanto a causa está no VAULT. Purgar
+# antes de criar faz o vault nascer realmente vazio.
 # ---------------------------------------------------------------------------
-
-resource "azurerm_container_registry" "acr" {
-  name                = "acrqc04${random_string.sufixo.result}"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  sku                 = "Basic"
-
-  # A conta admin do ACR é um par usuário/senha estático com acesso total ao
-  # registry. Não é necessária: o ACI autentica por Managed Identity (AcrPull).
-  admin_enabled = false
-
-  tags = local.tags
-}
-
-# Identidade que o ACI usa para puxar a imagem. User-assigned porque precisa
-# existir ANTES do container group, para receber o papel AcrPull.
-resource "azurerm_user_assigned_identity" "aci" {
-  name                = "id-aci-qc-aula04-${random_string.sufixo.result}"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  tags                = local.tags
-}
-
-resource "azurerm_role_assignment" "aci_acr_pull" {
-  scope                = azurerm_container_registry.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_user_assigned_identity.aci.principal_id
-}
-
-# Importa as imagens oficiais para o ACR do aluno.
-#
-# O `az acr import` copia servidor-a-servidor: nada trafega pelo Cloud Shell, e
-# o pull da origem é feito pela Azure, não pelo IP compartilhado do ACI.
-#
-# O prefixo `library/` é OBRIGATÓRIO para imagens oficiais do Docker Hub. Sem
-# ele a Azure procura um repositório de usuário chamado "mongo-express", que não
-# existe, e o import falha com 401 UNAUTHORIZED.
-resource "terraform_data" "importar_imagens" {
-  triggers_replace = [azurerm_container_registry.acr.id]
+resource "terraform_data" "purgar_kv_soft_deleted" {
+  triggers_replace = [timestamp()]
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
-      set -e
-      echo "Importando imagens do MongoDB para ${azurerm_container_registry.acr.name}..."
-      az acr import --name "${azurerm_container_registry.acr.name}" \
-        --source docker.io/library/mongo:7.0 --image mongo:7.0 --force --output none
-      az acr import --name "${azurerm_container_registry.acr.name}" \
-        --source docker.io/library/mongo-express:1.0.2 --image mongo-express:1.0.2 --force --output none
-      echo "Imagens importadas."
+      set -euo pipefail
+      NOME="kv-aula04-${random_string.sufixo.result}"
+
+      LOC=$(az keyvault list-deleted \
+        --query "[?name=='$NOME'].properties.location | [0]" -o tsv 2>/dev/null || true)
+
+      if [ -z "$LOC" ] || [ "$LOC" = "None" ]; then
+        echo "Nenhum Key Vault '$NOME' em soft-delete."
+        exit 0
+      fi
+
+      echo "Purgando Key Vault '$NOME' em $LOC ..."
+      # Vault com purge_protection_enabled = true NAO pode ser purgado antes do
+      # fim da retencao. Por isso o lab cria com a protecao desligada.
+      az keyvault purge --name "$NOME" --location "$LOC" --output none
+      echo "Purgado."
     EOT
   }
-
-  depends_on = [azurerm_container_registry.acr]
 }
 
-resource "azurerm_container_group" "mongodb" {
-  name                = "aci-qc-aula04-${random_string.sufixo.result}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  ip_address_type     = "Public"
-  dns_name_label      = "qc-mongo-${random_string.sufixo.result}"
-  os_type             = "Linux"
-  tags                = local.tags
+# Key Vault para guardar a chave do AI Services
+# (uso didático — em produção, prefira Managed Identity direto no recurso)
+resource "azurerm_key_vault" "kv" {
+  name                       = "kv-aula04-${random_string.sufixo.result}"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  rbac_authorization_enabled = true
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+  tags                       = local.tags
 
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.aci.id]
-  }
+  # O nome só está livre depois da purga.
+  depends_on = [terraform_data.purgar_kv_soft_deleted]
+}
 
-  # Pull por Managed Identity: sem usuário, sem senha, nada no state.
-  image_registry_credential {
-    server                    = azurerm_container_registry.acr.login_server
-    user_assigned_identity_id = azurerm_user_assigned_identity.aci.id
-  }
+# Concede ao usuário autenticado permissão de gerenciar segredos
+resource "azurerm_role_assignment" "kv_admin" {
+  scope                = azurerm_key_vault.kv.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
 
-  # Container 1: MongoDB 7.0
-  container {
-    name   = "mongodb"
-    image  = "${azurerm_container_registry.acr.login_server}/mongo:7.0"
-    cpu    = 0.5
-    memory = 1.0
+# Espera a role propagar antes de criar o segredo
+resource "time_sleep" "wait_rbac" {
+  depends_on      = [azurerm_role_assignment.kv_admin]
+  create_duration = "30s"
+}
 
-    ports {
-      port     = 27017
-      protocol = "TCP"
-    }
-
-    environment_variables = {
-      MONGO_INITDB_ROOT_USERNAME = "admin"
-      MONGO_INITDB_ROOT_PASSWORD = local.mongo_admin_pass
-      MONGO_INITDB_DATABASE      = "qc-db"
-    }
-  }
-
-  # Container 2: Mongo-Express (Web UI)
-  # Os containers do mesmo group compartilham rede (localhost)
-  container {
-    name   = "mongo-express"
-    image  = "${azurerm_container_registry.acr.login_server}/mongo-express:1.0.2"
-    cpu    = 0.25
-    memory = 0.5
-
-    ports {
-      port     = 8081
-      protocol = "TCP"
-    }
-
-    environment_variables = {
-      ME_CONFIG_MONGODB_URL = "mongodb://admin:${local.mongo_admin_pass}@localhost:27017"
-      # Basic Auth desativado: Chrome 94+ bloqueia dialogs de Basic Auth em HTTP puro.
-      # O MongoDB em si continua protegido por senha — esta interface é só para visualização no lab.
-      ME_CONFIG_BASICAUTH            = "false"
-      ME_CONFIG_MONGODB_ENABLE_ADMIN = "true"
-      ME_CONFIG_SITE_SESSIONSECRET   = "QCsession2024!"
-    }
-  }
-
-  # A imagem só existe depois do import, e o pull só funciona depois do AcrPull.
-  depends_on = [
-    terraform_data.importar_imagens,
-    azurerm_role_assignment.aci_acr_pull,
-  ]
+# Chave primária do AI Services como segredo no Vault
+resource "azurerm_key_vault_secret" "ai_key" {
+  name         = "ai-services-key"
+  value        = azurerm_cognitive_account.ai.primary_access_key
+  key_vault_id = azurerm_key_vault.kv.id
+  depends_on   = [time_sleep.wait_rbac]
 }
