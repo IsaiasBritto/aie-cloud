@@ -1,0 +1,97 @@
+name: Espelhar imagens do Mongo no GHCR
+
+# Por que este workflow existe:
+#   A Aula 4 sobe MongoDB e Mongo-Express em ACI. Puxar essas imagens do
+#   Docker Hub falha em sala com:
+#
+#     429 TOOMANYREQUESTS — "You have reached your unauthenticated pull rate limit"
+#
+#   O limite anônimo do Docker Hub é 100 pulls por 6 h POR IP. Tanto o ACI
+#   quanto o "az acr import" saem por IPs de saída COMPARTILHADOS da região
+#   Azure — a cota é dividida com todos os outros clientes daquela região.
+#   Não adianta trocar de aluno, de assinatura nem de resource group: o IP é
+#   o mesmo. Por isso o import direto do Docker Hub não é uma saída.
+#
+#   Este workflow copia as imagens uma vez para o GHCR do professor. Packages
+#   públicos do GHCR não têm limite de pull anônimo, então o Terraform do
+#   aluno importa de lá sem cota nenhuma.
+#
+# Rode uma vez (workflow_dispatch) e torne os dois packages PÚBLICOS.
+# O agendamento mensal só existe para o espelho não apodrecer.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 1 * *" # dia 1 de cada mês, 06:00 UTC
+
+jobs:
+  espelhar:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      # fail-fast desligado: se uma imagem falhar, a outra ainda é publicada.
+      fail-fast: false
+      matrix:
+        imagem:
+          - mongo:7.0
+          - mongo-express:1.0.2
+
+    steps:
+      # Nomes de repositório em registry são obrigatoriamente minúsculos e o
+      # owner aqui é "IsaiasBritto".
+      - name: Normalizar o owner para minúsculas
+        id: owner
+        run: echo "valor=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Opcional, mas recomendado: o runner do GitHub também sai por IP
+      # compartilhado e pode esbarrar no mesmo 429. Com uma conta grátis do
+      # Docker Hub em secrets o pull passa a contar contra a CONTA (200/6 h),
+      # não contra o IP. Se os secrets não existirem, o passo é pulado.
+      - name: Login no Docker Hub (se houver credencial)
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # "imagetools create" copia o manifesto e os blobs sem materializar a
+      # imagem no disco do runner, e preserva o manifest list multi-arquitetura.
+      # É cópia de registry para registry, não docker pull + docker push.
+      - name: Copiar ${{ matrix.imagem }} para o GHCR
+        run: |
+          docker buildx imagetools create \
+            --tag "ghcr.io/${{ steps.owner.outputs.valor }}/${{ matrix.imagem }}" \
+            "docker.io/library/${{ matrix.imagem }}"
+
+      - name: Confirmar que a imagem responde no destino
+        run: |
+          docker buildx imagetools inspect \
+            "ghcr.io/${{ steps.owner.outputs.valor }}/${{ matrix.imagem }}"
+
+      - name: Instruções finais
+        run: |
+          IMG="ghcr.io/${{ steps.owner.outputs.valor }}/${{ matrix.imagem }}"
+          {
+            echo "### Espelhada"
+            echo '```'
+            echo "$IMG"
+            echo '```'
+            echo ""
+            echo "**Na primeira execução, torne o package PÚBLICO.** Todo package novo no GHCR nasce privado, e o \`az acr import\` anônimo do aluno falharia com \`403 DENIED\` — o GHCR devolve a mesma resposta para \"privado\" e para \"não existe\", de propósito."
+            echo ""
+            echo "Packages → \`${{ matrix.imagem }}\` (sem a tag) → Package settings → Danger Zone → Change visibility → **Public**"
+          } >> "$GITHUB_STEP_SUMMARY"
