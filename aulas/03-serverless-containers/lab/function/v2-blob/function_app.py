@@ -29,6 +29,66 @@ _blob_service = BlobServiceClient(
     credential=_credential,
 )
 
+@app.route(route="fretes", methods=["POST"])
+def calcular_frete(req: func.HttpRequest) -> func.HttpResponse:
+    """POST /api/fretes"""
+    logging.info("Endpoint /fretes chamado")
+
+    body = req.get_json()
+
+    cep_origem = body.get("cep_origem")
+    cep_destino = body.get("cep_destino")
+    peso_kg = body.get("peso_kg")
+
+    # Tem que fazer o codigo do calculo do frete
+
+    try:
+        if not cep_origem or not cep_destino or peso_kg is None:
+            return func.HttpResponse(
+                json.dumps({
+                    "erro": "cep_origem, cep_destino e peso_kg são obrigatórios"
+                }),
+                mimetype="application/json",
+                status_code=400
+            )
+
+        peso_kg = float(peso_kg)
+
+        if peso_kg <= 0:
+            return func.HttpResponse(
+                json.dumps({
+                    "erro": "peso_kg deve ser maior que zero"
+                }),
+                mimetype="application/json",
+                status_code=400
+            )
+
+        resposta = {
+                "cep_origem": cep_origem,
+                "cep_destino": cep_destino,
+                "peso_kg": peso_kg,
+                "distancia_estimada_km": 0.0,
+                "valor_frete": 0.0,
+                "tempo_estimado_entrega_dias": 0
+            }
+
+        return func.HttpResponse(
+                    json.dumps(resposta, ensure_ascii=False),
+                    mimetype="application/json",
+                    status_code=200
+        )
+    
+    except Exception as e:
+        logging.exception("Falha ao calcular frete")
+        return func.HttpResponse(
+            json.dumps({"erro": f"falha ao acessar storage: {e!s}"}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+    
+
+
 
 def carregar_produtos() -> list[dict]:
     """Baixa produtos.csv do Blob e converte em lista de dicts."""
