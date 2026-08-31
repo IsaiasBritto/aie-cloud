@@ -45,8 +45,8 @@ desta trilha.
 ## 1 · Os três comandos
 
 ```bash
-git clone <url-do-repositorio> 05-foundry-agents
-cd 05-foundry-agents/Lab
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud/aulas/05-foundry-agents/Lab
 
 export SUFIXO=fiap01          # 4 a 6 caracteres, únicos no mundo
 export REGIAO=eastus2

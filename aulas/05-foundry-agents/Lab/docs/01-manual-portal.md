@@ -1,6 +1,8 @@
 # Manual 1 — Provisionar pelo Azure Portal, tela a tela
 
-> Caminho para quem está começando: **nenhum comando**, tudo clicando.
+> Caminho para quem está começando: o provisionamento é **todo clicando**, tela a tela.
+> Só dois momentos pedem terminal: o **Passo zero** (clonar o repositório) e o **Módulo 5**
+> (construir a imagem) — e o Módulo 5 explica por que o portal não tem equivalente clicável.
 > Nomes dos campos conferidos no portal em **português do Brasil**, em **30/08/2026**.
 > O caminho equivalente por script está no `02-manual-script.md`.
 >
@@ -10,6 +12,45 @@
 >
 > Tempo estimado: **35 a 45 minutos**.
 > Custo do laboratório inteiro, se você seguir o Módulo 0: **menos de US$ 2**.
+
+---
+
+## Passo zero — Clonar o repositório da disciplina
+
+Faça isto **antes de tudo**, na sua máquina. É daqui que saem os manuais, os `Dockerfile`
+e os scripts que você vai usar nos próximos módulos.
+
+```bash
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud/aulas/05-foundry-agents/Lab
+```
+
+No Windows, o mesmo comando funciona no **PowerShell** ou no **Git Bash** — só precisa ter o
+[Git instalado](https://git-scm.com/download/win).
+
+Confira que deu certo:
+
+```bash
+ls api/Dockerfile web/Dockerfile infra/00-variaveis.sh
+```
+
+Os três precisam existir. Se der "arquivo não encontrado", você está na pasta errada — repita
+o `cd` acima.
+
+> 💡 **Repositório grande?** Traga só a pasta da aula:
+>
+> ```bash
+> git clone --depth 1 --filter=blob:none --sparse https://github.com/IsaiasBritto/aie-cloud.git
+> cd aie-cloud
+> git sparse-checkout set aulas/05-foundry-agents/Lab
+> cd aulas/05-foundry-agents/Lab
+> ```
+
+> ⚠️ **Isto NÃO substitui o clone do Módulo 5.** O Azure Cloud Shell é **outra máquina**,
+> na nuvem: o que você baixou no seu computador não está lá. No Módulo 5 você clona de novo,
+> dentro do Cloud Shell. Parece redundante e não é — são dois ambientes diferentes.
+
+**Já é o dia da aula e o repositório mudou?** `git pull` dentro da pasta atualiza tudo.
 
 ---
 
@@ -54,13 +95,21 @@ um único clique apaga o laboratório inteiro.
    |---|---|
    | **Assinatura** | Azure for Students |
    | **Grupo de recursos** | `rg-aula-05` |
-   | **Região** | (US) East US 2|
+   | **Região** | (US) East US 2 |
 
 3. **Examinar + criar** → **Criar**.
 
-💡 **Por que East US:** é a região com a maior disponibilidade de serviços e a que
-menos causa surpresa em sala. Em projeto real com dado brasileiro, a escolha da região
-é decisão de conformidade, não de conveniência.
+💡 **Por que East US 2:** é a região liberada na assinatura desta turma. Confira a sua
+antes de começar — assinaturas *Azure for Students* liberam ~5 regiões e **elas variam por
+aluno** (Portal → Política → Atribuições → *Allowed resource deployment regions*).
+Em projeto real com dado brasileiro, a escolha da região é decisão de conformidade,
+não de conveniência.
+
+⚠️ **Exceção — o recurso de visão (Módulo 3).** A documentação da Microsoft **não lista
+East US 2** entre as regiões do Image Analysis 4.0. Se o `features=people` responder 404
+ou "not supported", crie **apenas o recurso de visão** numa região suportada — East US,
+West US 2, Sweden Central, West Europe, entre outras. Os endpoints são independentes:
+a API só precisa da URL e da chave, então o resto do lab continua em East US 2.
 
 ---
 
@@ -76,7 +125,7 @@ menos causa surpresa em sala. Em projeto real com dado brasileiro, a escolha da 
    | **Assinatura** | Azure for Students |
    | **Grupo de recursos** | `rg-aula-05` |
    | **Nome da conta de armazenamento** | `stdeva3` + seu sufixo (ex.: `stdeva3fiap01`) |
-   | **Região** | (US) East US 2|
+   | **Região** | (US) East US 2 |
    | **Desempenho** | Standard |
    | **Redundância** | LRS (armazenamento com redundância local) |
 
@@ -120,7 +169,7 @@ Este é o cérebro do Deva3.
 
    | Campo | Valor |
    |---|---|
-   | **Região** | (US) East US 2|
+   | **Região** | (US) East US 2 |
    | **Nome** * | `cv-deva3-` + seu sufixo |
    | **Faixa de preços** * | **Free F0 (20 Calls per minute, 5K Calls per month)** |
 
@@ -167,7 +216,7 @@ confunde com chave errada.
    | **Assinatura** | Azure for Students |
    | **Grupo de recursos** | `rg-aula-05` |
    | **Nome do registro** | `acrdeva3` + seu sufixo (só letras e números) |
-   | **Local** | (US) East US 2|
+   | **Local** | (US) East US 2 |
    | **SKU** | Basic |
 
    ⚠️ Também é nome **global**. E o Basic tem **custo fixo mensal** — é o único item do
@@ -238,15 +287,32 @@ O Cloud Shell **é** o portal: um terminal dentro de `portal.azure.com`, já aut
      os arquivos somem quando a sessão fecha. **Suficiente para a aula.**
    - **"Criar armazenamento"** → cria uma Storage Account pequena (centavos/mês) e os arquivos
      ficam salvos entre sessões.
-5. Suba o projeto. O botão fica no topo do terminal: **Gerenciar arquivos** → **Carregar**.
-   > ⚠️ O upload é **um arquivo por vez**. Suba o **.zip** do projeto, não a pasta.
-6. Descompacte e entre na raiz:
+5. Clone o projeto **dentro do Cloud Shell** — é o mesmo comando do
+   [Passo zero](#passo-zero--clonar-o-repositório-da-disciplina), mas aqui ele roda na
+   máquina da nuvem, não na sua:
 
    ```bash
-   unzip 05-foundry-agents.zip
-   cd 05-foundry-agents/Lab
+   git clone https://github.com/IsaiasBritto/aie-cloud.git
+   cd aie-cloud/aulas/05-foundry-agents/Lab
    ls api/Dockerfile          # tem que existir; se não, você está na pasta errada
    ```
+
+   > ⚠️ **Sim, é o segundo clone — e é necessário.** O Cloud Shell é um computador
+   > separado, na Azure. O repositório que você baixou no seu notebook não existe ali.
+   >
+   > 💡 **Por que clonar em vez de subir um zip:** o Cloud Shell aceita **um arquivo por vez**
+   > no botão *Carregar*, e o arquivo some quando a sessão é efêmera. O `git clone` traz a
+   > versão correta em segundos e, se você corrigir algo em sala, um `git pull` atualiza a
+   > turma inteira.
+
+   > ⚡ **Repositório grande?** Traga só a pasta da aula:
+   >
+   > ```bash
+   > git clone --depth 1 --filter=blob:none --sparse https://github.com/IsaiasBritto/aie-cloud.git
+   > cd aie-cloud
+   > git sparse-checkout set aulas/05-foundry-agents/Lab
+   > cd aulas/05-foundry-agents/Lab
+   > ```
 
 7. Rode o comando — o mesmo, sem mudanças:
 
@@ -276,7 +342,8 @@ O Cloud Shell **é** o portal: um terminal dentro de `portal.azure.com`, já aut
 Este é o único caminho puramente clicável. Ele monta uma **Tarefa** (*ACR Task*) que aponta
 para um repositório Git — e, de brinde, pode reconstruir a imagem a cada `git push`.
 
-**Pré-requisito:** o projeto precisa estar num repositório **GitHub** ou **Azure Repos**.
+**Pré-requisito:** o projeto precisa estar num repositório **GitHub** ou **Azure Repos** —
+neste curso, já está: `IsaiasBritto/aie-cloud`, pasta `aulas/05-foundry-agents/Lab`.
 
 1. Portal → busque **Registros de contêiner** → clique em **`acrdeva3<sufixo>`**.
 2. Menu esquerdo → **Serviços** → **Tarefas**.
@@ -287,14 +354,22 @@ para um repositório Git — e, de brinde, pode reconstruir a imagem a cada `git
    |---|---|
    | **Nome da tarefa** | `construir-deva3-api` |
    | **Localização de origem** / **Tipo de origem** | `GitHub` |
-   | **URL do repositório** | `https://github.com/<usuario>/<repo>.git` |
+   | **URL do repositório** | `https://github.com/IsaiasBritto/aie-cloud.git` |
    | **Branch** | `main` |
-   | **Caminho do arquivo Docker** | `api/Dockerfile` |
+   | **Caminho do arquivo Docker** | `aulas/05-foundry-agents/Lab/api/Dockerfile` |
    | **Imagem** | `deva3-api:v1` |
    | **Plataforma** | `Linux` · `amd64` |
 
-   > O **contexto** é sempre a raiz do repositório — que é exatamente o que este Dockerfile
-   > precisa. É o mesmo `.` do comando.
+   > ⚠️ **Atenção ao contexto.** Neste repositório o lab é uma **subpasta**, não a raiz.
+   > O contexto precisa ser `aulas/05-foundry-agents/Lab` — senão o `COPY api/...` do
+   > Dockerfile não encontra nada. Se o portal só oferecer um campo de URL, use a sintaxe
+   > de subpasta do próprio ACR, com `#branch:subpasta`:
+   >
+   > ```
+   > https://github.com/IsaiasBritto/aie-cloud.git#main:aulas/05-foundry-agents/Lab
+   > ```
+   >
+   > Com essa URL, o **Caminho do arquivo Docker** volta a ser só `api/Dockerfile`.
 
 5. Aba **Gatilhos**: para a aula, **desmarque "Habilitar gatilho de confirmação"** — senão
    cada `git push` dispara um build novo. Deixe **Gatilho de imagem base** desmarcado também.
@@ -369,7 +444,7 @@ Vale fazer isso em qualquer um dos três caminhos:
    | **Nome do aplicativo contêiner** * | `ca-deva3-api` |
    | **Otimizar para Azure Functions** | deixe **desmarcado** |
    | **Origem da implantação** | **Imagem de contêiner** |
-   | **Ambiente do Aplicativo de Contêiner** | **Criar novo** → `cae-aula-05`, região East US 2|
+   | **Ambiente do Aplicativo de Contêiner** | **Criar novo** → `cae-aula-05`, região East US 2 |
 
 3. Aba **Contêiner**:
 

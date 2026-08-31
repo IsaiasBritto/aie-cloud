@@ -166,7 +166,7 @@ Qualquer outra ferramenta: pergunte antes.
 ## 11. Mapa do repositório
 
 ```
-05-foundry-agents/Lab/
+aulas/05-foundry-agents/Lab/
 ├── AGENTS.md              ← este arquivo: a alma do agente
 ├── MEMORY.md              ← o que já foi aprendido (leia primeiro!)
 ├── README.md              ← como rodar

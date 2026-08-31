@@ -37,7 +37,8 @@ não guarda template biométrico e não infere idade, gênero ou emoção.
 ## Começar em 3 minutos (local)
 
 ```bash
-git clone <url> 05-foundry-agents && cd 05-foundry-agents/Lab
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud/aulas/05-foundry-agents/Lab
 cp .env.exemplo .env          # preencha VISAO_ENDPOINT e VISAO_CHAVE
 docker compose up --build
 ```
@@ -120,7 +121,7 @@ Erros saem sempre no mesmo formato, com o campo que resolve a dúvida:
 ## Estrutura
 
 ```
-05-foundry-agents/Lab/
+aulas/05-foundry-agents/Lab/
 ├── AGENTS.md              A alma do agente (leia primeiro)
 ├── MEMORY.md              O que já foi aprendido — lido no início de toda sessão
 ├── api/                   Backend FastAPI

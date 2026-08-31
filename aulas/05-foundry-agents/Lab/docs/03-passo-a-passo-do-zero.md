@@ -26,7 +26,7 @@ trabalhar do seu jeito desde a primeira linha, em vez de você corrigir depois.
 ## Passo 1 · Criar o repositório
 
 ```bash
-mkdir -p 05-foundry-agents/Lab && cd 05-foundry-agents/Lab
+mkdir -p aulas/05-foundry-agents/Lab && cd aulas/05-foundry-agents/Lab
 git init
 mkdir -p api/servicos api/testes web infra agente/skills docs
 touch api/__init__.py api/servicos/__init__.py api/testes/__init__.py
@@ -254,7 +254,7 @@ Descrição vaga = skill que nunca roda.
 
 ```bash
 # 1. Repositório e agente
-mkdir -p 05-foundry-agents/Lab && cd $_ && git init
+mkdir -p aulas/05-foundry-agents/Lab && cd $_ && git init
 mkdir -p api/servicos api/testes web infra agente/skills docs
 # escreva .gitignore, AGENTS.md e MEMORY.md ANTES de qualquer código
 

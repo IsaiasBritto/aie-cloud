@@ -203,7 +203,7 @@ P["d3-04-repositorio"] = ("""
 <h2>Cada pasta responde a uma pergunta</h2>
 <div class="row" style="margin-top:6px">
   <div style="flex:1.15">
-""" + janela("05-foundry-agents/Lab/", """
+""" + janela("aulas/05-foundry-agents/Lab/", """
 <div class="cod" style="border:0;border-radius:0">
 <span class="dq">AGENTS.md</span>              <span class="cm">a alma do agente</span><br>
 <span class="dq">MEMORY.md</span>              <span class="cm">lido no início de TODA sessão</span><br>
