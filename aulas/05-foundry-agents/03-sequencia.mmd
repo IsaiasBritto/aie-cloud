@@ -1,0 +1,53 @@
+---
+title: Deva3 — Diagrama de sequência do POST /detectar
+---
+sequenceDiagram
+    autonumber
+
+    actor Aluno
+    participant Web as ca-deva3-web<br/>(Streamlit)
+    participant API as ca-deva3-api<br/>(FastAPI · principal.py)
+    participant Val as _validar_imagem<br/>(Pillow)
+    participant Serv as ServicoVisaoAzure
+    participant Azure as Azure AI Vision<br/>Image Analysis 4.0
+    participant Arm as ServicoArmazenamentoBlob
+    participant Blob as Azure Blob Storage
+
+    Aluno->>Web: sobe a foto, escolhe o modo<br/>e marca (ou não) o consentimento
+    Web->>API: POST /detectar · modo=pessoas · consentimento=true<br/>multipart/form-data
+
+    API->>Val: valida tamanho, tipo e integridade
+    alt arquivo inválido ou grande demais
+        Val--)API: ImagemInvalida / ImagemGrandeDemais
+        API--)Web: HTTP 400 ou 413 + campo como_resolver
+        Web--)Aluno: mostra a mensagem e o que fazer
+    else imagem válida
+        Val-->>API: (largura, altura) em pixels
+    end
+
+    API->>Serv: detectar(bytes da imagem)
+    Serv->>Azure: POST imageanalysis:analyze<br/>?api-version=2024-02-01&features=people<br/>Ocp-Apim-Subscription-Key
+
+    alt Azure devolve erro
+        Azure--)Serv: 401 · 404 · 429 · 5xx
+        Serv--)API: FalhaDeIntegracao(mensagem, como_resolver)
+        API--)Web: HTTP 502 + como_resolver
+    else 200 OK
+        Azure-->>Serv: peopleResult.values[]<br/>boundingBox {x,y,w,h} + confidence
+        Serv->>Serv: _interpretar: converte para<br/>CaixaDelimitadora e ordena por confiança
+        Serv-->>API: lista de (caixa, confiança) + dimensões
+    end
+
+    API->>API: aplica o limiar<br/>acima_do_limiar = confianca ≥ LIMIAR_CONFIANCA<br/>monta ResultadoDeteccao
+
+    opt armazenamento configurado
+        API->>Arm: guardar(identificador, imagem?, resultado)
+        Note over Arm,Blob: A imagem só é enviada se<br/>PERSISTIR_IMAGENS=true E consentimento=true.<br/>Sem consentimento, vai só o JSON.
+        Arm->>Blob: upload deteccoes/AAAA/MM/DD/[id]/
+        Blob-->>Arm: gravado
+        Arm-->>API: prefixo do blob
+    end
+
+    API-->>Web: HTTP 200 · ResultadoDeteccao (JSON)
+    Web->>Web: desenha as caixas sobre a foto<br/>ciano acima do limiar, âmbar abaixo
+    Web-->>Aluno: imagem anotada + tabela de coordenadas + JSON cru
