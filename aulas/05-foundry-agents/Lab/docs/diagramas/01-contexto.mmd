@@ -1,0 +1,35 @@
+---
+title: Deva3 — Diagrama de contexto (C4 nível 1)
+---
+flowchart TB
+
+    aluno["<b>Aluno</b><br/><span style='font-size:13px'>Envia a própria foto<br/>e lê o resultado</span>"]
+    professor["<b>Professor</b><br/><span style='font-size:13px'>Provisiona, publica<br/>e conduz a aula</span>"]
+
+    subgraph limite["LIMITE DO SISTEMA · Deva3"]
+        direction TB
+        deva3["<b>Deva3</b><br/>API de Validação Biométrica Básica<br/><span style='font-size:13px'>Recebe uma imagem, pergunta ao serviço<br/>cognitivo e devolve as coordenadas<br/>com a pontuação de confiança</span>"]
+    end
+
+    visao["<b>Azure AI Vision</b><br/>Image Analysis 4.0<br/><span style='font-size:13px'>Sistema externo · sem gating</span>"]
+    face["<b>Azure AI Face</b><br/>face/v1.2/detect<br/><span style='font-size:13px'>Sistema externo · Acesso Limitado<br/>OPCIONAL</span>"]
+    blob["<b>Azure Blob Storage</b><br/>container privado deteccoes<br/><span style='font-size:13px'>Sistema externo</span>"]
+
+    aluno -->|"envia a foto e lê o JSON<br/>HTTPS"| deva3
+    professor -->|"configura o limiar,<br/>publica e apaga o ambiente"| deva3
+
+    deva3 -->|"POST imagem<br/>devolve boundingBox + confidence"| visao
+    deva3 -.->|"POST imagem<br/>devolve faceRectangle, sem confiança"| face
+    deva3 -->|"grava original.jpg e resultado.json<br/>SOMENTE com consentimento"| blob
+
+    classDef pessoa fill:#22161B,stroke:#EB0B4F,stroke-width:2px,color:#F4F3EF
+    classDef sistema fill:#12222A,stroke:#03E3FD,stroke-width:2.5px,color:#F4F3EF
+    classDef externo fill:#1C1C22,stroke:#7A7872,stroke-width:1.5px,color:#C3C1BA
+    classDef opcional fill:#221E14,stroke:#FFD579,stroke-width:1.5px,color:#C3C1BA,stroke-dasharray:5 4
+
+    class aluno,professor pessoa
+    class deva3 sistema
+    class visao,blob externo
+    class face opcional
+
+    style limite fill:#191920,stroke:#3A3A46,stroke-width:1px,color:#7A7872
