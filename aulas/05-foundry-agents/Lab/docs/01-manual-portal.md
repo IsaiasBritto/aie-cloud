@@ -550,8 +550,32 @@ Menu esquerdo → **Segurança** → **Segredos** → **+ Adicionar**:
 > assunto de outra aula; aqui a API é pública de propósito, para a turma testar pelo Postman.
 
 
-**Depois as variáveis.** Menu esquerdo → **Revisões e réplicas** → **Criar nova revisão** →
-na lista de contêineres clique em **`api`** → no painel lateral, seção
+**Depois as variáveis.** Menu esquerdo → **Revisões e réplicas** → **Criar nova revisão**.
+
+A tela *"Criar e implantar uma nova revisão"* tem três abas: **Contêiner · Escala · Volumes**.
+
+> ⚠️ **Fique na aba `Contêiner`** — a primeira. **Volumes** e **Escala** não são usados neste
+> laboratório; o "+ Adicionar" delas abre *"Adicionar volume"* e não tem nada a ver com
+> variáveis de ambiente.
+
+Na seção **Imagem do contêiner** há uma lista com o contêiner que já existe e, acima dela,
+três botões: **✏️ Editar** · **🗑️ Excluir** · **+ Adicionar**.
+
+> ⚠️ **NÃO use o "+ Adicionar".** Ele abre um menu com duas opções, e as duas **acrescentam**
+> um contêiner novo ao aplicativo:
+>
+> | Opção | O que faz | Quando serviria |
+> |---|---|---|
+> | **Contêiner de aplicativo** | adiciona um *sidecar*, que roda em paralelo ao principal | agente de log, proxy, coletor de métricas |
+> | **Contêiner de inicialização** | adiciona um *init*, que roda até terminar **antes** de o app subir | migração de banco, download de modelo |
+>
+> Os dois são recursos legítimos do Container Apps — só não é o que queremos aqui. Se você
+> escolher qualquer um, o aplicativo passa a ter dois contêineres e não sobe direito.
+
+**O caminho certo:** marque a caixa de seleção do contêiner na lista (o nome é o que foi
+definido na criação — por exemplo `ca-deva3-api`) e clique em **✏️ Editar**.
+
+Abre um painel lateral com **Imagem**, **Recursos** e, mais abaixo, a seção
 **Variáveis de ambiente** → **Adicionar**:
 
 | Nome | Origem | Valor |
@@ -627,6 +651,8 @@ serviço de visão. Volte ao Módulo 3 e teste o endpoint direto.
 | Não acho "Variáveis de ambiente" na tela do app | depois de criado, elas vivem dentro da **revisão** | passo **6.3** — Revisões e réplicas → Criar nova revisão |
 | O portal pede "Adicionar um provedor de identidade" | você abriu **Segurança → Autenticação** por engano | é o vizinho: **Segurança → Segredos**. Não configure provedor nenhum |
 | "A chave deve consistir em caracteres alfanuméricos minúsculos e `-`" | tentou cadastrar `AMBIENTE` (ou outra variável comum) como **segredo** | só `visao-chave` e `armazenamento-conexao` são segredos; o resto vai em **Variáveis de ambiente** |
+| Abriu "Adicionar volume" ao procurar as variáveis | está na aba **Volumes** da nova revisão | volte para a aba **Contêiner** — o lab não usa volume |
+| O app passa a ter dois contêineres | escolheu "Contêiner de aplicativo" ou "de inicialização" no "+ Adicionar" | os dois **acrescentam**; para editar o existente é a caixa de seleção + **Editar** |
 | `401` no Postman ou redirecionamento para tela de login | um provedor de identidade foi adicionado em Autenticação | **Segurança → Autenticação** → remova o provedor |
 | `/saude` não responde | porta de destino errada | tem que ser **8000**, a mesma do `EXPOSE` do Dockerfile |
 | `/saude` ok, `/detectar` com erro 5xx | endpoint ou chave de visão errados, ou região sem Image Analysis 4.0 | confira `VISAO_ENDPOINT` **sem barra no fim** e teste o serviço pelo Módulo 3 |
