@@ -708,6 +708,20 @@ Copie e guarde. Esse é o único valor novo deste módulo.
 > ⚠️ **Copie a URL limpa.** Sem `/saude` no fim, sem `/docs`, sem barra final. O que a interface
 > espera é a **raiz** — ela mesma acrescenta `/saude` e `/detectar` na hora de chamar.
 
+> 🚨 **O erro mais comum do laboratório inteiro mora aqui: copiar a URL errada.** Os dois
+> aplicativos vivem no mesmo ambiente e por isso têm endereços quase idênticos — só o primeiro
+> rótulo muda:
+>
+> ```
+> https://ca-deva3-api.purplesea-03c9c2f8.eastus2.azurecontainerapps.io   ← esta
+> https://ca-deva3-web.purplesea-03c9c2f8.eastus2.azurecontainerapps.io   ← NÃO esta
+> ```
+>
+> Se você copiar a segunda, a interface passa a conversar **consigo mesma**, e o sintoma não
+> parece ter nada a ver: o passo **7.6** explica por quê. Antes de colar, confira que o nome do
+> host começa com **`ca-deva3-api`**. E o jeito mais seguro de não errar é copiar a URL **antes**
+> de criar a interface — que é exatamente por que este passo é o 7.1.
+
 O acesso ao registro **já está liberado**: o passo 6.1 vale para o registro inteiro, e portanto
 para as duas imagens. Não refaça.
 
@@ -847,8 +861,10 @@ A primeira carga leva alguns segundos (o Streamlit sobe sob demanda).
 Confira nesta ordem:
 
 1. **O painel lateral, à esquerda.** Deve mostrar `API: <a URL da sua API>` e uma faixa
-   **verde** de saudável, com o **limiar de confiança** e o **blob configurado**. Faixa vermelha
-   dizendo que não foi possível falar com a API significa `API_URL` errada — volte ao 7.3.
+   **verde** de saudável, com o **limiar de confiança** e o **blob configurado**.
+   **Leia o endereço que aparece ali**: se ele começa com `ca-deva3-web`, a variável está
+   apontando para a própria interface — passo **7.1**. Faixa vermelha dizendo que não foi
+   possível falar com a API significa `API_URL` errada ou API fora do ar — volte ao 7.3.
 2. **Modo de detecção**: deixe em **Pessoas · Image Analysis 4.0**.
 3. **Consentimento**: marque, se quiser ver a imagem gravada no Blob do Módulo 2. Desmarcado,
    só o JSON é guardado — e essa é a diferença que vale discutir com a turma.
@@ -869,12 +885,38 @@ completo fica visível no fim da coluna da direita.
 |---|---|---|
 | A URL abre e fica **em branco** ou dá erro 502 | porta de destino errada | tem que ser **8501**, não 8000 — passo **7.4** |
 | Painel lateral vermelho: "Não foi possível falar com a API" | `API_URL` ausente, errada ou com `/saude` no fim | passo **7.3** — a URL é a **raiz** da API, sem barra final |
+| `resposta_invalida — <html><title>403: Forbidden</title>...` ao analisar a foto | `API_URL` aponta para a **própria interface** | passo **7.1** — o host tem que começar com `ca-deva3-api`. Veja o quadro abaixo |
 | A tela abre mas não reage aos cliques | transporte forçado, WebSocket bloqueado | **Rede → Entrada → Tipo de transporte = Automático** |
 | A revisão sobe e morre | quase sempre imagem errada (`deva3-api` no lugar de `deva3-web`) | **Monitoramento → Fluxo de logs** e confira a imagem na revisão |
 | Criou um ambiente novo por engano | o campo oferece "Criar novo" na aba Noções Básicas | apague o ambiente extra; os dois apps devem ficar em `cae-aula-05` |
 | `Registry names may contain only alpha numeric characters...` | passou `ca-deva3-web` para um comando `az acr` | o `--name` do `az acr` é o **registro**: `acrdeva3<sufixo>` — passo **6.1** |
 | Timeout ao analisar a foto | rede da sala lenta, ou API demorando no serviço de visão | suba `TEMPO_LIMITE_SEGUNDOS` para `120` e teste o `/detectar` direto no Postman |
 | A caixa não é desenhada, mas o JSON aparece | a resposta não trouxe detecção | não é erro da interface: a foto não tem pessoa reconhecível, ou a confiança ficou abaixo do limiar |
+
+#### 📎 O caso do `403: Forbidden` — quando a interface conversa consigo mesma
+
+Vale contar este à turma, porque o sintoma esconde a causa. Com `API_URL` apontando para o
+endereço da **própria interface**, acontecem duas coisas ao mesmo tempo:
+
+| O que a interface faz | O que ela recebe | O que aparece na tela |
+|---|---|---|
+| `GET /saude` | a **página HTML** do Streamlit, não JSON | *"A API não respondeu"* no painel lateral |
+| `POST /detectar` | `403: Forbidden` do **Tornado** | `resposta_invalida — <html><title>403: Forbidden</title>...` |
+
+O `403` **não vem da Azure nem da API** — vem do Tornado, o servidor por baixo do Streamlit.
+Ele recebeu um `POST` numa rota que não é dele e recusou por proteção contra CSRF. Aquele HTML
+minúsculo, `<html><title>403: Forbidden</title><body>403: Forbidden</body></html>`, é a página
+de erro padrão do Tornado — reconhecê-la é o atalho para o diagnóstico.
+
+E a mensagem *"A API não respondeu"* é honesta, só que imprecisa: a chamada **funcionou**, o
+`200` voltou — o que quebrou foi o `.json()`, ao tentar interpretar HTML. No código, o
+`requests.exceptions.JSONDecodeError` herda de `RequestException` e cai no mesmo `except` da
+falha de rede. É um bom exemplo de tratamento de erro largo demais escondendo a causa real:
+duas falhas muito diferentes, uma mensagem só.
+
+**A pergunta para a sala:** *como você faria essa mensagem distinguir "não consegui falar" de
+"falei com a coisa errada"?* A resposta cabe em três linhas de código — e é a diferença entre
+um aluno depurando por dez minutos e por dez segundos.
 
 ---
 
@@ -910,5 +952,6 @@ completo fica visível no fim da coluna da direita.
 | O registro não aparece ao criar o Container App | Usuário administrador do ACR desligado | `az acr update --name <acr> --admin-enabled true` (Módulo 6.1) |
 | `UNAUTHORIZED` ao implantar o Container App | O app não tem credencial para puxar do ACR | Módulo 6.1 — habilite o administrador ou use identidade gerenciada |
 | Interface abre e não fala com a API | `API_URL` errada ou sem `https://` | Corrija a variável |
+| `403: Forbidden` (HTML) na resposta do serviço cognitivo | `API_URL` aponta para a própria interface (`ca-deva3-web`) | O host tem que ser `ca-deva3-api` — Módulo 7.1 |
 | `Registry names may contain only alpha numeric characters` | Passou o nome do **aplicativo** a um comando `az acr` | O `--name` do `az acr` é o registro: `acrdeva3<sufixo>` |
 | `ModuleNotFoundError: api` | Imagem construída da pasta errada | Construa a partir da **raiz** do projeto |
