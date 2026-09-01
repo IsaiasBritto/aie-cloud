@@ -390,6 +390,61 @@ confusão nº 1 de quem migra de um para o outro.
 
 ## Módulo 6 — Publicar a API como Aplicativo de Contêiner
 
+### 6.1 Antes de criar: liberar o acesso ao registro
+
+**Faça isto primeiro.** O Aplicativo de Contêiner precisa de credencial para **puxar** a imagem
+do seu ACR. Se o registro estiver fechado, acontece uma de duas coisas — e as duas confundem:
+o registro **não aparece** na lista da aba *Contêiner*, ou a implantação falha lá na frente com
+**`UNAUTHORIZED`**.
+
+**Pela CLI** (no Cloud Shell, dois comandos):
+
+```bash
+az acr update --name acrdeva3<sufixo> --admin-enabled true
+az acr credential show -n acrdeva3<sufixo>
+```
+
+O segundo devolve o usuário e duas senhas:
+
+```json
+{
+  "passwords": [ { "name": "password", "value": "..." },
+                 { "name": "password2", "value": "..." } ],
+  "username": "acrdeva3<sufixo>"
+}
+```
+
+Guarde o **username** e **uma** das senhas — você só vai precisar deles se o portal pedir
+(situação B do passo 6.2).
+
+**Pelo portal**, se preferir não usar terminal:
+
+1. Portal → **Registros de contêiner** → **`acrdeva3<sufixo>`**.
+2. Menu esquerdo → **Configurações** → **Chaves de acesso**.
+3. Ligue a chave **Usuário administrador**.
+4. A própria tela passa a mostrar **Servidor de logon**, **Nome de usuário** e duas senhas,
+   com botão de copiar. É exatamente o que o `az acr credential show` imprime.
+
+> ⚠️ **Isto é um atalho de sala, e vale dizer isso à turma.** O usuário administrador é uma
+> senha compartilhada, igual para todo mundo que tem acesso ao registro, e não dá para rastrear
+> quem puxou o quê. Em produção o caminho é **identidade gerenciada** com a função **AcrPull** —
+> a documentação da Azure descreve a identidade gerenciada justamente como a forma de
+> *"evitar o uso de credenciais administrativas"*.
+>
+> Se quiser mostrar o caminho correto depois de o lab funcionar:
+>
+> ```bash
+> az containerapp registry set \
+>   --name ca-deva3-api --resource-group rg-aula-05 \
+>   --identity system --server acrdeva3<sufixo>.azurecr.io
+> ```
+>
+> O portal tenta atribuir o papel `AcrPull` à identidade sozinho; quando não consegue —
+> falta de permissão ou propagação —, é preciso atribuir na mão. É esse "às vezes funciona,
+> às vezes não" que faz o usuário administrador ser o caminho previsível para uma turma.
+
+### 6.2 Criar o Aplicativo de Contêiner
+
 1. Busque **Aplicativos de Contêiner** → **+ Criar**.
    A tela se chama **"Criar Aplicativo de contêiner"**, com as abas
    **Noções Básicas · Contêiner · Entrada · Tags · Examinar + criar**.
@@ -405,7 +460,9 @@ confusão nº 1 de quem migra de um para o outro.
    | **Origem da implantação** | **Imagem de contêiner** |
    | **Ambiente do Aplicativo de Contêiner** | **Criar novo** → `cae-aula-05`, região East US 2 |
 
-3. Aba **Contêiner**:
+3. Aba **Contêiner**. Aqui há **duas situações**, dependendo do que o portal te oferece:
+
+   **Situação A — o registro aparece na lista** (o normal, depois do passo 6.1):
 
    | Campo | Valor |
    |---|---|
@@ -415,6 +472,16 @@ confusão nº 1 de quem migra de um para o outro.
    | **Imagem** | `deva3-api` |
    | **Marca da imagem** | `v1` |
    | **CPU e memória** | 0,5 CPU · 1 Gi |
+
+   **Situação B — o registro não aparece**: escolha **Origem da imagem = Registro privado** e
+   preencha à mão com o que você copiou no passo 6.1:
+
+   | Campo | Valor |
+   |---|---|
+   | **Servidor de logon do registro** | `acrdeva3<sufixo>.azurecr.io` |
+   | **Nome de usuário do registro** | o `username` do `az acr credential show` |
+   | **Senha do registro** | uma das senhas — marque para guardar como **segredo** |
+   | **Imagem e marca** | `deva3-api:v1` |
 
    Ainda na aba Contêiner, em **Variáveis de ambiente**, adicione:
 
@@ -441,17 +508,33 @@ confusão nº 1 de quem migra de um para o outro.
    | **Porta de destino** | `8000` |
 
 5. **Examinar + criar** → **Criar**. Leva de 2 a 4 minutos.
-6. **Ir para o recurso** e copie a **URL do aplicativo**. Abra `.../saude` no navegador:
-   deve responder um JSON com `"situacao": "saudavel"`.
 
----
+### 6.3 Testar
+
+**Ir para o recurso** e copie a **URL do aplicativo**. Abra `.../saude` no navegador:
+deve responder um JSON com `"situacao": "saudavel"`.
+
+Se o `/saude` responder mas o `/detectar` falhar, o problema **não é o contêiner** — é o
+serviço de visão. Volte ao Módulo 3 e teste o endpoint direto.
+
+### 6.4 Erros comuns neste módulo
+
+| Erro | Causa | Solução |
+|---|---|---|
+| O registro não aparece na lista da aba Contêiner | usuário administrador desligado | passo **6.1** |
+| `UNAUTHORIZED` / `authentication required` na implantação | idem — o app não consegue puxar a imagem | passo **6.1**, e recrie o aplicativo |
+| A revisão sobe e morre em seguida | a imagem subiu, mas o app quebra ao iniciar | **Monitoramento → Fluxo de logs**: quase sempre é variável de ambiente faltando |
+| `/saude` não responde | porta de destino errada | tem que ser **8000**, a mesma do `EXPOSE` do Dockerfile |
+| `/saude` ok, `/detectar` com erro 5xx | endpoint ou chave de visão errados, ou região sem Image Analysis 4.0 | confira `VISAO_ENDPOINT` **sem barra no fim** e teste o serviço pelo Módulo 3 |
 
 ## Módulo 7 — Publicar a interface
 
 > 🗺️ A partir daqui vale abrir o [diagrama de sequência](imagens/03-sequencia.png):
 > ele mostra exatamente o que vai acontecer quando o aluno clicar em "Analisar imagem".
 
-Repita o Módulo 6 com estas diferenças:
+Repita o Módulo 6 com estas diferenças. O acesso ao registro **já está liberado** — o passo
+6.1 vale para as duas imagens, não precisa refazer.
+
 
 | Campo | Valor |
 |---|---|
@@ -497,5 +580,7 @@ e o JSON completo fica visível na tela.
 | `401` | Chave de outro recurso | Recopie em Chaves e Ponto de Extremidade |
 | `429` | Cota do F0 (20 chamadas/minuto) | Espere 1 minuto; combine rodadas |
 | Container sobe e cai | Porta de destino errada | API é `8000`, interface é `8501` |
+| O registro não aparece ao criar o Container App | Usuário administrador do ACR desligado | `az acr update --name <acr> --admin-enabled true` (Módulo 6.1) |
+| `UNAUTHORIZED` ao implantar o Container App | O app não tem credencial para puxar do ACR | Módulo 6.1 — habilite o administrador ou use identidade gerenciada |
 | Interface abre e não fala com a API | `API_URL` errada ou sem `https://` | Corrija a variável |
 | `ModuleNotFoundError: api` | Imagem construída da pasta errada | Construa a partir da **raiz** do projeto |
