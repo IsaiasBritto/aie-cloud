@@ -483,20 +483,10 @@ Guarde o **username** e **uma** das senhas — você só vai precisar deles se o
    | **Senha do registro** | uma das senhas — marque para guardar como **segredo** |
    | **Imagem e marca** | `deva3-api:v1` |
 
-   Ainda na aba Contêiner, em **Variáveis de ambiente**, adicione:
-
-   | Nome | Origem | Valor |
-   |---|---|---|
-   | `AMBIENTE` | Valor manual | `azure` |
-   | `VISAO_ENDPOINT` | Valor manual | o endpoint **sem barra no final** |
-   | `VISAO_CHAVE` | **Referência a um segredo** | a chave copiada no Módulo 3 |
-   | `ARMAZENAMENTO_CONEXAO` | **Referência a um segredo** | a cadeia do Módulo 2 |
-   | `ARMAZENAMENTO_CONTAINER` | Valor manual | `deteccoes` |
-   | `PERSISTIR_IMAGENS` | Valor manual | `true` |
-   | `LIMIAR_CONFIANCA` | Valor manual | `0.60` |
-
-   💡 **Segredo é diferente de variável.** Chave e cadeia de conexão vão como **segredo**;
-   o resto vai como valor comum. Segredo não aparece em log nem na tela de revisão.
+   Ainda na aba Contêiner, **role até o fim**: existe a seção **Variáveis de ambiente**.
+   As sete variáveis do laboratório estão na tabela do passo **6.3** — preencha ali mesmo, se
+   a seção aparecer. Se você não encontrar (o assistente muda de versão em versão), **siga em
+   frente e crie o aplicativo**: o passo 6.3 mostra como adicioná-las depois.
 
 4. Aba **Entrada**:
 
@@ -509,21 +499,97 @@ Guarde o **username** e **uma** das senhas — você só vai precisar deles se o
 
 5. **Examinar + criar** → **Criar**. Leva de 2 a 4 minutos.
 
-### 6.3 Testar
+### 6.3 As variáveis de ambiente e os segredos
 
-**Ir para o recurso** e copie a **URL do aplicativo**. Abra `.../saude` no navegador:
+> ⚠️ **Depois que o aplicativo existe, variáveis de ambiente só mudam criando uma nova
+> revisão.** Não há campo para editar na **Visão geral** — é assim por design: cada revisão é
+> um instantâneo imutável. Muita gente procura na tela errada aqui.
+
+**Primeiro os segredos.** Eles precisam existir antes de serem referenciados.
+
+Menu esquerdo → **Segurança** → **Segredos** (em algumas versões do portal fica em
+*Configurações*) → **+ Adicionar**:
+
+| Nome do segredo | Valor |
+|---|---|
+| `visao-chave` | a **CHAVE 1** do recurso de visão (Módulo 3) |
+| `armazenamento-conexao` | a cadeia de conexão da conta de armazenamento (Módulo 2) |
+
+**Depois as variáveis.** Menu esquerdo → **Revisões e réplicas** → **Criar nova revisão** →
+na lista de contêineres clique em **`api`** → no painel lateral, seção
+**Variáveis de ambiente** → **Adicionar**:
+
+| Nome | Origem | Valor |
+|---|---|---|
+| `AMBIENTE` | Valor manual | `azure` |
+| `VISAO_ENDPOINT` | Valor manual | o endpoint **sem barra no final** |
+| `VISAO_CHAVE` | **Referência a um segredo** | `visao-chave` |
+| `ARMAZENAMENTO_CONEXAO` | **Referência a um segredo** | `armazenamento-conexao` |
+| `ARMAZENAMENTO_CONTAINER` | Valor manual | `deteccoes` |
+| `PERSISTIR_IMAGENS` | Valor manual | `true` |
+| `LIMIAR_CONFIANCA` | Valor manual | `0.60` |
+
+**Salvar** → **Criar**. Nasce uma revisão nova e a anterior é substituída. Leva ~1 minuto.
+
+> 💡 O atalho **Contêineres → Editar e implantar** cai exatamente no mesmo editor.
+
+> 💡 **Segredo é diferente de variável.** Chave e cadeia de conexão vão como **segredo**;
+> o resto vai como valor comum. Segredo não aparece em log nem na tela de revisão — é um bom
+> momento para mostrar à turma a diferença entre configuração e credencial.
+
+**Pela CLI**, se preferir, o mesmo resultado em dois comandos:
+
+```bash
+az containerapp secret set -n ca-deva3-api -g rg-aula-05 \
+  --secrets visao-chave="<CHAVE 1>" armazenamento-conexao="<cadeia de conexao>"
+
+az containerapp update -n ca-deva3-api -g rg-aula-05 \
+  --set-env-vars AMBIENTE=azure \
+                 VISAO_ENDPOINT="https://<recurso>.cognitiveservices.azure.com" \
+                 VISAO_CHAVE=secretref:visao-chave \
+                 ARMAZENAMENTO_CONEXAO=secretref:armazenamento-conexao \
+                 ARMAZENAMENTO_CONTAINER=deteccoes \
+                 PERSISTIR_IMAGENS=true \
+                 LIMIAR_CONFIANCA=0.60
+```
+
+### 6.4 A entrada (ingress)
+
+Se a **Visão geral** mostrar **`URL do aplicativo: Entrada desabilitada`**, não existe endereço
+para testar. Corrija em: menu esquerdo → **Rede** → **Entrada**.
+
+| Campo | Valor |
+|---|---|
+| **Entrada** | Habilitada |
+| **Tráfego de entrada** | Aceitar tráfego de qualquer lugar |
+| **Tipo de transporte** | Automático |
+| **Porta de destino** | `8000` |
+
+Salve. Diferente das variáveis, a entrada é configuração **do aplicativo** e não exige revisão
+nova. Pela CLI:
+
+```bash
+az containerapp ingress enable -n ca-deva3-api -g rg-aula-05 \
+  --type external --target-port 8000 --transport auto
+```
+
+### 6.5 Testar
+
+Na **Visão geral**, copie a **URL do aplicativo** e abra `.../saude` no navegador:
 deve responder um JSON com `"situacao": "saudavel"`.
 
 Se o `/saude` responder mas o `/detectar` falhar, o problema **não é o contêiner** — é o
 serviço de visão. Volte ao Módulo 3 e teste o endpoint direto.
 
-### 6.4 Erros comuns neste módulo
+### 6.6 Erros comuns neste módulo
 
 | Erro | Causa | Solução |
 |---|---|---|
 | O registro não aparece na lista da aba Contêiner | usuário administrador desligado | passo **6.1** |
 | `UNAUTHORIZED` / `authentication required` na implantação | idem — o app não consegue puxar a imagem | passo **6.1**, e recrie o aplicativo |
 | A revisão sobe e morre em seguida | a imagem subiu, mas o app quebra ao iniciar | **Monitoramento → Fluxo de logs**: quase sempre é variável de ambiente faltando |
+| `URL do aplicativo: Entrada desabilitada` | ingress não foi habilitado na criação | passo **6.4** — Rede → Entrada, porta 8000 |
+| Não acho "Variáveis de ambiente" na tela do app | depois de criado, elas vivem dentro da **revisão** | passo **6.3** — Revisões e réplicas → Criar nova revisão |
 | `/saude` não responde | porta de destino errada | tem que ser **8000**, a mesma do `EXPOSE` do Dockerfile |
 | `/saude` ok, `/detectar` com erro 5xx | endpoint ou chave de visão errados, ou região sem Image Analysis 4.0 | confira `VISAO_ENDPOINT` **sem barra no fim** e teste o serviço pelo Módulo 3 |
 
@@ -533,7 +599,8 @@ serviço de visão. Volte ao Módulo 3 e teste o endpoint direto.
 > ele mostra exatamente o que vai acontecer quando o aluno clicar em "Analisar imagem".
 
 Repita o Módulo 6 com estas diferenças. O acesso ao registro **já está liberado** — o passo
-6.1 vale para as duas imagens, não precisa refazer.
+6.1 vale para as duas imagens, não precisa refazer. Os passos **6.3** (variável de ambiente) e
+**6.4** (entrada) valem igual aqui, com os valores da tabela abaixo.
 
 
 | Campo | Valor |
