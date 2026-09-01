@@ -13,11 +13,11 @@
 ```bash
 git clone https://github.com/IsaiasBritto/aie-cloud.git
 cd aie-cloud/aulas/05-foundry-agents/Lab2
+```
 
 `git clone` só aceita a URL do **repositório**. A URL que aparece na barra do navegador
 (`.../tree/main/aulas/...`) é caminho de navegação do site, e o git responde
 `repository not found`.
-```
 
 ### 1 · Entrar e escolher a assinatura
 
