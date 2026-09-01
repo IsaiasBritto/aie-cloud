@@ -2,7 +2,8 @@
 
 > Caminho para quem está começando: o provisionamento é **todo clicando**, tela a tela.
 > Só dois momentos pedem terminal: o **Passo zero** (clonar o repositório) e o **Módulo 5**
-> (construir a imagem) — e o Módulo 5 explica por que o portal não tem equivalente clicável.
+> (construir a imagem), que roda na **CLI da Azure** dentro do Cloud Shell. O Módulo 5 traz,
+> como comentário, o caminho equivalente por telas do portal e por que não é o da aula.
 > Nomes dos campos conferidos no portal em **português do Brasil**, em **30/08/2026**.
 > O caminho equivalente por script está no `02-manual-script.md`.
 >
@@ -233,63 +234,46 @@ sem senha nenhuma.
 
 ## Módulo 5 — Enviar a imagem para o registro
 
-O comando de referência é este:
+> 🖥️ **Este é o único módulo que roda no terminal.** Todo o resto do manual é clicando; aqui
+> usamos a **CLI da Azure**, dentro do **Cloud Shell** — que é o próprio portal, no ícone `>_`
+> da barra superior. Nada para instalar na sua máquina, nem Docker.
+
+### 5.1 Os quatro comandos
+
+Você já está no Cloud Shell, na pasta do projeto (Módulo 5.2 explica como chegar lá).
 
 ```bash
+# 1 · a imagem da API
 az acr build --registry acrdeva3<sufixo> --image deva3-api:v1 --file api/Dockerfile .
+
+# 2 · a imagem da interface
+az acr build --registry acrdeva3<sufixo> --image deva3-web:v1 --file web/Dockerfile .
+
+# 3 · conferir
+az acr repository show-tags --name acrdeva3<sufixo> --repository deva3-api -o table
+az acr repository show-tags --name acrdeva3<sufixo> --repository deva3-web -o table
 ```
 
-### 5.1 O que cada pedaço faz (explique isto antes de clicar em qualquer coisa)
+Cada build leva de **40 segundos a 2 minutos**. O log passa pela tela inteira; o que interessa
+são as três últimas linhas:
 
-| Pedaço | O que significa |
-|---|---|
-| `az acr build` | **Quick task**: compacta o contexto, envia para a Azure, o ACR **constrói na nuvem** e já faz o *push*. O aluno **não precisa de Docker instalado** |
-| `--registry acrdeva3<sufixo>` | em qual registro construir e guardar |
-| `--image deva3-api:v1` | nome do repositório dentro do registro (`deva3-api`) e a marca (`v1`) |
-| `--file api/Dockerfile` | onde está o Dockerfile — **caminho relativo ao contexto**, não à sua pasta atual |
-| `.` (o ponto no fim) | **o contexto**: a pasta que sobe para a nuvem. Aqui é a **raiz do projeto** |
+```
+Successfully tagged acrdeva3<sufixo>.azurecr.io/deva3-api:v1
+2026/09/01 00:33:06 Successfully pushed image: acrdeva3<sufixo>.azurecr.io/deva3-api:v1
+Run ID: ch1 was successful after 40s
+```
 
-> 💡 **Por que o contexto é a raiz e não `api/`?** Porque o `api/Dockerfile` faz
-> `COPY api/requirements.txt` e `COPY api ./api` — ele enxerga o projeto a partir de cima.
-> Se você rodar com contexto `api/`, o build falha com *"file not found"*. O próprio
-> Dockerfile avisa isso no comentário do topo.
+Se aparecer `Run ID: ... was successful`, acabou. Pode ir para o Módulo 6.
 
-> 💡 **O que sobe junto?** Tudo que está na raiz, **menos** o que o `.dockerignore` exclui —
-> neste projeto: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `docs`, `infra`, `*.md`.
-> Sem esse arquivo, o upload levaria centenas de MB inúteis. Vale mostrá-lo à turma.
+### 5.2 Abrir o Cloud Shell e chegar na pasta
 
-### 5.2 A verdade sobre o portal
-
-**Não existe, no portal da Azure, uma tela que pegue uma pasta do seu computador e construa
-a imagem.** O portal só sabe construir a partir de um **repositório Git**. Isso não é
-limitação do laboratório — é como o produto funciona.
-
-Então há três caminhos, e cada um serve a uma situação diferente:
-
-| Caminho | É "pelo portal"? | Precisa de Docker? | Precisa de Git? | Quando usar |
-|---|---|---|---|---|
-| **A · Cloud Shell** | sim — roda dentro do portal.azure.com | não | não | **o caminho da aula** |
-| **B · Tarefa do ACR** | sim — 100% telas e cliques | não | **sim** | quando o código já está no GitHub |
-| **C · Docker local** | não — só a conferência é no portal | **sim** | não | quem já tem Docker Desktop |
-
----
-
-### Caminho A — Cloud Shell (recomendado para a aula)
-
-O Cloud Shell **é** o portal: um terminal dentro de `portal.azure.com`, já autenticado, com o
-`az` instalado. O aluno não instala nada e roda o comando original sem alterar uma vírgula.
-
-1. Entre em **`portal.azure.com`**.
-2. Na barra superior, clique no ícone **`>_`** (*Cloud Shell*).
-3. Escolha **Bash** (não PowerShell — os comandos deste lab são Bash).
-4. Na primeira vez, ele pergunta onde guardar os arquivos:
-   - **"Sem conta de armazenamento"** / *ephemeral* → mais rápido e **não gera custo**, mas
-     os arquivos somem quando a sessão fecha. **Suficiente para a aula.**
-   - **"Criar armazenamento"** → cria uma Storage Account pequena (centavos/mês) e os arquivos
-     ficam salvos entre sessões.
-5. Clone o projeto **dentro do Cloud Shell** — é o mesmo comando do
-   [Passo zero](#passo-zero--clonar-o-repositório-da-disciplina), mas aqui ele roda na
-   máquina da nuvem, não na sua:
+1. Em **`portal.azure.com`**, clique no ícone **`>_`** da barra superior.
+2. Escolha **Bash** (não PowerShell — os comandos deste lab são Bash).
+3. Na primeira vez ele pergunta onde guardar os arquivos:
+   **"Sem conta de armazenamento"** é mais rápido e não gera custo; os arquivos somem quando a
+   sessão fecha, o que é suficiente para a aula. **"Criar armazenamento"** cria uma Storage
+   Account pequena (centavos por mês) e mantém os arquivos entre sessões.
+4. Clone o projeto **aqui dentro**:
 
    ```bash
    git clone https://github.com/IsaiasBritto/aie-cloud.git
@@ -297,58 +281,69 @@ O Cloud Shell **é** o portal: um terminal dentro de `portal.azure.com`, já aut
    ls api/Dockerfile          # tem que existir; se não, você está na pasta errada
    ```
 
-   > ⚠️ **Sim, é o segundo clone — e é necessário.** O Cloud Shell é um computador
-   > separado, na Azure. O repositório que você baixou no seu notebook não existe ali.
-   >
-   > 💡 **Por que clonar em vez de subir um zip:** o Cloud Shell aceita **um arquivo por vez**
-   > no botão *Carregar*, e o arquivo some quando a sessão é efêmera. O `git clone` traz a
-   > versão correta em segundos e, se você corrigir algo em sala, um `git pull` atualiza a
-   > turma inteira.
+   > ⚠️ **Sim, é o segundo clone — e é necessário.** O Cloud Shell é um computador separado,
+   > na Azure. O repositório que você baixou no [Passo zero](#passo-zero--clonar-o-repositório-da-disciplina),
+   > no seu notebook, não existe aqui.
 
-   > ⚡ **Repositório grande?** Traga só a pasta da aula:
-   >
-   > ```bash
-   > git clone --depth 1 --filter=blob:none --sparse https://github.com/IsaiasBritto/aie-cloud.git
-   > cd aie-cloud
-   > git sparse-checkout set aulas/05-foundry-agents/Lab
-   > cd aulas/05-foundry-agents/Lab
-   > ```
+### 5.3 O que cada pedaço do comando faz
 
-7. Rode o comando — o mesmo, sem mudanças:
+| Pedaço | O que significa |
+|---|---|
+| `az acr build` | **Quick task**: compacta o contexto, envia para a Azure, o ACR **constrói na nuvem** e já faz o *push*. Por isso ninguém precisa de Docker |
+| `--registry acrdeva3<sufixo>` | em qual registro construir e guardar |
+| `--image deva3-api:v1` | nome do repositório dentro do registro (`deva3-api`) e a marca (`v1`) |
+| `--file api/Dockerfile` | onde está o Dockerfile — **caminho relativo ao contexto**, não à sua pasta atual |
+| `.` (o ponto no fim) | **o contexto**: a pasta que sobe para a nuvem. Aqui é a **raiz do projeto** |
 
-   ```bash
-   az acr build --registry acrdeva3<sufixo> --image deva3-api:v1 --file api/Dockerfile .
-   ```
+> 💡 **Por que o contexto é a raiz e não `api/`?** Porque o `api/Dockerfile` faz
+> `COPY api/requirements.txt` e `COPY api ./api` — ele enxerga o projeto a partir de cima.
+> Com o contexto em `api/`, o build falha em *"file not found"*. O próprio Dockerfile avisa
+> disso no comentário do topo.
 
-8. Acompanhe o log de build ao vivo no próprio terminal. Ao final aparece
-   `Run ID: ca1 was successful after Xm Ys`.
+> 💡 **Repare nestas duas linhas do log:**
+> ```
+> Excluding '.gitignore' based on default ignore rules
+> Sending context (47.033 KiB) to registry: acrdeva3<sufixo>...
+> ```
+> **47 KB.** É o `.dockerignore` funcionando: ele deixa de fora `.git`, `.venv`, `__pycache__`,
+> `docs`, `infra` e os `*.md`. Sem esse arquivo, subiriam dezenas de MB a cada build. Vale abrir
+> o `.dockerignore` com a turma neste momento.
 
-9. Repita para a interface:
+### 5.4 Conferir no portal
 
-   ```bash
-   az acr build --registry acrdeva3<sufixo> --image deva3-web:v1 --file web/Dockerfile .
-   ```
+1. Portal → **Registros de contêiner** → `acrdeva3<sufixo>`.
+2. Menu esquerdo → **Serviços** → **Repositórios**: devem aparecer **`deva3-api`** e **`deva3-web`**.
+3. Clique em `deva3-api` → a marca **`v1`** com o *digest*, o tamanho e a data.
+4. **Serviços → Tarefas → Execuções**: o histórico de builds. Os `az acr build` do Cloud Shell
+   aparecem aqui como execuções do tipo *QuickBuild*, com o log inteiro.
 
-> 💡 **Alternativa sem upload:** se o projeto estiver no GitHub, troque o passo 5 por
-> `git clone https://github.com/<usuario>/<repo>.git` dentro do Cloud Shell.
+### 5.5 Erros comuns neste módulo
 
-> ⚠️ O Cloud Shell **encerra a sessão após ~20 minutos de inatividade** e o modo *ephemeral*
-> apaga os arquivos. Se a turma for parar para o intervalo, faça o build antes.
+| Erro | Causa | Solução |
+|---|---|---|
+| `unable to prepare context: ... no such file or directory` | rodou de dentro de `api/`, ou esqueceu o `.` no fim | volte para a raiz do projeto; o contexto é `.` |
+| `COPY failed: file not found in build context` | usou `api/` como contexto | o contexto tem que ser a **raiz** — o Dockerfile faz `COPY api/...` |
+| `denied: requested access to the resource is denied` | sem permissão de push no ACR | peça a função **AcrPush** (ou Colaborador) no registro |
+| `az: command not found` | não é o Cloud Shell, é um terminal local sem a CLI | volte para o `>_` do portal |
+| A sessão do Cloud Shell caiu | ele encerra após ~20 min parado, e o modo efêmero apaga os arquivos | repita o `git clone` do 5.2 |
+| `RequestDisallowedByAzure` ao criar o ACR | região fora das permitidas na assinatura | veja o Passo zero e o Módulo 0 |
+| O nome do registro é recusado | nome de ACR é **global** e só aceita letras e números minúsculos | troque o sufixo |
 
 ---
 
-### Caminho B — Tarefa do ACR (100% cliques, mas exige o código no Git)
+### 📎 Comentário — e se fosse tudo pelo portal, sem terminal?
 
-Este é o único caminho puramente clicável. Ele monta uma **Tarefa** (*ACR Task*) que aponta
-para um repositório Git — e, de brinde, pode reconstruir a imagem a cada `git push`.
+*Esta seção é referência, não passo do laboratório. Vale ler para entender o produto — e para
+responder à pergunta que sempre aparece em sala: "não dá para fazer isso clicando?".*
 
-**Pré-requisito:** o projeto precisa estar num repositório **GitHub** ou **Azure Repos** —
-neste curso, já está: `IsaiasBritto/aie-cloud`, pasta `aulas/05-foundry-agents/Lab`.
+**Dá, com uma condição: o código precisa estar num repositório Git.** O portal não tem nenhuma
+tela que pegue uma pasta do seu computador e construa a imagem — ele constrói a partir do Git,
+e só. Como o nosso projeto **está** no GitHub, o caminho existe e se chama **Tarefa do ACR**
+(*ACR Task*). De brinde, ela reconstrói a imagem a cada `git push`.
 
-1. Portal → busque **Registros de contêiner** → clique em **`acrdeva3<sufixo>`**.
-2. Menu esquerdo → **Serviços** → **Tarefas**.
-3. Clique em **+ Adicionar** → **Tarefa**.
-4. Aba **Detalhes da tarefa**:
+1. Portal → **Registros de contêiner** → **`acrdeva3<sufixo>`**.
+2. Menu esquerdo → **Serviços** → **Tarefas** → **+ Adicionar** → **Tarefa**.
+3. Aba **Detalhes da tarefa**:
 
    | Campo | Valor |
    |---|---|
@@ -360,10 +355,8 @@ neste curso, já está: `IsaiasBritto/aie-cloud`, pasta `aulas/05-foundry-agents
    | **Imagem** | `deva3-api:v1` |
    | **Plataforma** | `Linux` · `amd64` |
 
-   > ⚠️ **Atenção ao contexto.** Neste repositório o lab é uma **subpasta**, não a raiz.
-   > O contexto precisa ser `aulas/05-foundry-agents/Lab` — senão o `COPY api/...` do
-   > Dockerfile não encontra nada. Se o portal só oferecer um campo de URL, use a sintaxe
-   > de subpasta do próprio ACR, com `#branch:subpasta`:
+   > ⚠️ **Atenção ao contexto.** Neste repositório o lab é uma **subpasta**, não a raiz. Se o
+   > portal oferecer só um campo de URL, use a sintaxe de subpasta do próprio ACR:
    >
    > ```
    > https://github.com/IsaiasBritto/aie-cloud.git#main:aulas/05-foundry-agents/Lab
@@ -371,63 +364,29 @@ neste curso, já está: `IsaiasBritto/aie-cloud`, pasta `aulas/05-foundry-agents
    >
    > Com essa URL, o **Caminho do arquivo Docker** volta a ser só `api/Dockerfile`.
 
-5. Aba **Gatilhos**: para a aula, **desmarque "Habilitar gatilho de confirmação"** — senão
-   cada `git push` dispara um build novo. Deixe **Gatilho de imagem base** desmarcado também.
-6. Aba **Credenciais de origem**: para repositório **privado**, cole um **token de acesso
-   pessoal (PAT)** do GitHub com escopo `repo`. Repositório público costuma dispensar.
-7. **Criar**.
-8. De volta em **Tarefas**, selecione `construir-deva3-api` e clique em **Executar agora**
-   (*Run now*) → **Executar**.
-9. Acompanhe em **Tarefas** → aba **Execuções** (*Runs*): a execução aparece com um ID
-   (`ca1`, `ca2`…), o status e o **log completo** clicável.
-10. Repita tudo para `construir-deva3-web`, trocando o Dockerfile para `web/Dockerfile` e a
-    imagem para `deva3-web:v1`.
+4. Aba **Gatilhos**: desmarque **"Habilitar gatilho de confirmação"** — senão cada `git push`
+   dispara um build. Deixe **Gatilho de imagem base** desmarcado também.
+5. Aba **Credenciais de origem**: repositório privado exige um **token de acesso pessoal (PAT)**
+   do GitHub com escopo `repo`. Público costuma dispensar.
+6. **Criar** → selecione a tarefa → **Executar agora** → acompanhe em **Execuções**.
 
----
+**Por que a aula não usa esse caminho:** ele leva de 5 a 8 minutos de configuração por imagem,
+contra 40 segundos de um comando — e ainda assim depende do código estar publicado no Git. A
+Tarefa do ACR brilha em outra situação: **automação**. Deixe o gatilho de confirmação ligado e
+você tem um build automático a cada commit, sem pipeline nenhum. Vale mostrar a tela e explicar
+essa diferença; é um bom gancho para CI/CD.
 
-### Caminho C — Docker na máquina do aluno
-
-Só faz sentido para quem já tem Docker Desktop rodando. Não é "pelo portal" — o portal entra
-apenas na conferência do passo 5.4.
+**E o terceiro caminho, Docker na própria máquina:**
 
 ```bash
-az acr login --name acrdeva3<sufixo>          # autentica o Docker no seu registro
+az acr login --name acrdeva3<sufixo>
 docker build -f api/Dockerfile -t acrdeva3<sufixo>.azurecr.io/deva3-api:v1 .
 docker push acrdeva3<sufixo>.azurecr.io/deva3-api:v1
 ```
 
-> ⚠️ Repare que aqui a imagem precisa do **nome completo do registro** na tag
-> (`acrdeva3<sufixo>.azurecr.io/…`). No `az acr build` isso é implícito, porque o
-> `--registry` já diz o destino. É a confusão nº 1 de quem migra de um para o outro.
-
----
-
-### 5.3 Conferir no portal que deu certo
-
-Vale fazer isso em qualquer um dos três caminhos:
-
-1. Portal → **Registros de contêiner** → `acrdeva3<sufixo>`.
-2. Menu esquerdo → **Serviços** → **Repositórios**.
-   Devem aparecer **`deva3-api`** e **`deva3-web`**.
-3. Clique em `deva3-api` → deve existir a marca **`v1`**. Clicando nela você vê o *digest*,
-   o tamanho, a data e o comando para puxar a imagem.
-4. Para ver o histórico de builds: **Serviços** → **Tarefas** → aba **Execuções**.
-   Cada execução traz status, duração e o log inteiro — inclusive os builds feitos por
-   `az acr build` no Cloud Shell, que aparecem como execuções do tipo *QuickBuild*.
-
-### 5.4 Erros comuns neste módulo
-
-| Erro | Causa | Solução |
-|---|---|---|
-| `unable to prepare context: ... Dockerfile: no such file or directory` | rodou de dentro de `api/`, ou esqueceu o `.` no fim | volte para a raiz do projeto; o contexto é `.` |
-| `COPY failed: file not found in build context` | usou `api/` como contexto | o contexto tem que ser a **raiz** — o Dockerfile faz `COPY api/...` |
-| `denied: requested access to the resource is denied` | sem permissão de push no ACR | peça a função **AcrPush** (ou Colaborador) no registro |
-| `az: command not found` | não é o Cloud Shell, é um terminal local sem CLI | use o Cloud Shell (Caminho A) |
-| Upload da pasta não funciona no Cloud Shell | ele aceita **um arquivo por vez** | suba o `.zip` e descompacte lá dentro |
-| `RequestDisallowedByAzure` ao criar o ACR | região fora das permitidas na assinatura | veja o Módulo 0 — escolha uma região liberada |
-| O nome do registro é recusado | nome de ACR é **global** e só aceita letras e números minúsculos | troque o sufixo |
-
----
+Só serve para quem já tem Docker Desktop. Repare que aqui a tag precisa do **nome completo do
+registro** — no `az acr build` isso é implícito, porque o `--registry` já diz o destino. É a
+confusão nº 1 de quem migra de um para o outro.
 
 ## Módulo 6 — Publicar a API como Aplicativo de Contêiner
 
