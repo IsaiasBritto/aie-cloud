@@ -507,13 +507,48 @@ Guarde o **username** e **uma** das senhas — você só vai precisar deles se o
 
 **Primeiro os segredos.** Eles precisam existir antes de serem referenciados.
 
-Menu esquerdo → **Segurança** → **Segredos** (em algumas versões do portal fica em
-*Configurações*) → **+ Adicionar**:
+> ⚠️ **Só DOIS dos sete valores são segredos.** Os outros cinco são variáveis comuns e
+> **não entram nesta tela** — se você tentar cadastrar `AMBIENTE` aqui, o portal recusa.
 
-| Nome do segredo | Valor |
-|---|---|
-| `visao-chave` | a **CHAVE 1** do recurso de visão (Módulo 3) |
-| `armazenamento-conexao` | a cadeia de conexão da conta de armazenamento (Módulo 2) |
+Menu esquerdo → **Segurança** → **Segredos** → **+ Adicionar**:
+
+| Chave | Tipo | Valor |
+|---|---|---|
+| `visao-chave` | Segredo dos Aplicativos de Contêiner | a **CHAVE 1** do recurso de visão (Módulo 3) |
+| `armazenamento-conexao` | Segredo dos Aplicativos de Contêiner | a cadeia de conexão da conta de armazenamento (Módulo 2) |
+
+> ⚠️ **Nome de segredo e nome de variável seguem regras diferentes — e por isso são
+> diferentes.** O portal exige que a chave do segredo tenha *"caracteres alfanuméricos
+> minúsculos e `-`, começando e terminando com alfanumérico"*. Ou seja: `visao-chave` passa,
+> `VISAO_CHAVE` é recusado.
+>
+> | | Nome do **segredo** | Nome da **variável de ambiente** |
+> |---|---|---|
+> | Regra | minúsculas, números e hífen | maiúsculas e `_` liberados |
+> | Exemplo | `visao-chave` | `VISAO_CHAVE` |
+>
+> São dois cadastros distintos: **o segredo guarda o valor, a variável aponta para ele.** A
+> aplicação continua lendo `VISAO_CHAVE` — o nome minúsculo é só o rótulo do cofre.
+
+> 💡 **Leia o aviso da própria tela:** *"a alteração de segredos não criará uma nova revisão"*.
+> Segredo vale para **todas** as revisões e pode ser trocado sem redeploy; variável de ambiente
+> é presa à revisão e exige uma nova. É uma distinção que vale explicar à turma — troca de
+> credencial vazada não deveria exigir implantação.
+
+> 💡 **Não achou o "Segredos" no menu?** Use o campo **Pesquisar** no topo do menu do recurso e
+> digite `segredo`. Ele filtra o menu inteiro e não depende da versão do portal — o layout desse
+> menu muda com frequência.
+
+> ⚠️ **Cuidado com o vizinho de menu.** Dentro de **Segurança** existe também **Autenticação**,
+> que abre uma tela convidativa: *"Adicionar um provedor de identidade"*, com Microsoft, Google,
+> Facebook. **Não é isso, e não clique.** Essa tela configura o *Easy Auth* — quem pode **chamar**
+> o seu aplicativo de fora. Se você adicionar um provedor com "Exigir autenticação", a Azure passa
+> a interceptar **todas** as requisições: o Postman recebe `401` e o navegador é redirecionado
+> (`302`) para uma tela de login antes de chegar na API. O laboratório para de funcionar.
+>
+> O recurso é **opcional e desligado por padrão** — deixe assim. Autenticação de verdade seria
+> assunto de outra aula; aqui a API é pública de propósito, para a turma testar pelo Postman.
+
 
 **Depois as variáveis.** Menu esquerdo → **Revisões e réplicas** → **Criar nova revisão** →
 na lista de contêineres clique em **`api`** → no painel lateral, seção
@@ -590,6 +625,9 @@ serviço de visão. Volte ao Módulo 3 e teste o endpoint direto.
 | A revisão sobe e morre em seguida | a imagem subiu, mas o app quebra ao iniciar | **Monitoramento → Fluxo de logs**: quase sempre é variável de ambiente faltando |
 | `URL do aplicativo: Entrada desabilitada` | ingress não foi habilitado na criação | passo **6.4** — Rede → Entrada, porta 8000 |
 | Não acho "Variáveis de ambiente" na tela do app | depois de criado, elas vivem dentro da **revisão** | passo **6.3** — Revisões e réplicas → Criar nova revisão |
+| O portal pede "Adicionar um provedor de identidade" | você abriu **Segurança → Autenticação** por engano | é o vizinho: **Segurança → Segredos**. Não configure provedor nenhum |
+| "A chave deve consistir em caracteres alfanuméricos minúsculos e `-`" | tentou cadastrar `AMBIENTE` (ou outra variável comum) como **segredo** | só `visao-chave` e `armazenamento-conexao` são segredos; o resto vai em **Variáveis de ambiente** |
+| `401` no Postman ou redirecionamento para tela de login | um provedor de identidade foi adicionado em Autenticação | **Segurança → Autenticação** → remova o provedor |
 | `/saude` não responde | porta de destino errada | tem que ser **8000**, a mesma do `EXPOSE` do Dockerfile |
 | `/saude` ok, `/detectar` com erro 5xx | endpoint ou chave de visão errados, ou região sem Image Analysis 4.0 | confira `VISAO_ENDPOINT` **sem barra no fim** e teste o serviço pelo Módulo 3 |
 
