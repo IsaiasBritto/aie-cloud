@@ -18,7 +18,7 @@ E o orçamento — que não é opcional num módulo em que o agente acorda sozin
 
 ```bash
 az consumption budget create \
-  --budget-name orc-aula-02-continuo \
+  --budget-name orc-aula-05-continuo \
   --amount 10 --category cost --time-grain monthly \
   --start-date $(date +%Y-%m-01) --end-date $(date -d "+3 months" +%Y-%m-01)
 ```
@@ -198,7 +198,7 @@ de modificação no portal.
 
 ```bash
 bash infra/99-remover-tudo.sh     # exige digitar o nome do grupo
-az group exists --name rg-aula-02-continuo    # deve responder false em alguns minutos
+az group exists --name rg-aula-05-continuo    # deve responder false em alguns minutos
 ```
 
 E, no Foundry, remova a Ferramenta OpenAPI do Deva — ela aponta para uma URL que deixou de

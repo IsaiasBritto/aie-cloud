@@ -16,7 +16,7 @@ a partir do nível 3, o agente **acorda sozinho**. Um laço mal fechado gasta en
 dorme.
 
 1. **portal.azure.com** → **Gerenciamento de Custos** → **Orçamentos** → **+ Adicionar**
-2. Escopo: sua assinatura · Nome: `orc-aula-02-continuo` · Mensal · Valor: **10**
+2. Escopo: sua assinatura · Nome: `orc-aula-05-continuo` · Mensal · Valor: **10**
 3. Alertas em **50%** e **90%** do custo real → seu e-mail → **Criar**
 
 💡 **Diga em voz alta:** o orçamento **avisa**, não freia. O freio de verdade, neste
@@ -29,7 +29,7 @@ módulo, está no `AGENTS.md` §10 — *duas voltas seguidas sem avançar nada =
 ## Módulo 1 — Criar o grupo e o armazenamento (5 min)
 
 1. **portal.azure.com** → **Grupos de recursos** → **+ Criar**
-   - Nome: **`rg-aula-02-continuo`** · Região: **East US 2**
+   - Nome: **`rg-aula-05-continuo`** · Região: **East US 2**
 2. Dentro do grupo → **+ Criar** → busque **Conta de armazenamento**
    - Nome: `stdeva` + suas iniciais + turma (só minúsculas e números, 3–24 caracteres)
    - Desempenho **Standard** · Redundância **LRS** (é laboratório, não produção)
@@ -228,7 +228,7 @@ Pergunte à turma o que teria acontecido na versão 1.3, em que o agente escrevi
 
 ## Módulo 8 — Apagar tudo (3 min)
 
-1. **portal.azure.com** → **Grupos de recursos** → `rg-aula-02-continuo`
+1. **portal.azure.com** → **Grupos de recursos** → `rg-aula-05-continuo`
 2. **Excluir grupo de recursos** → digite o nome → **Excluir**
 3. **ai.azure.com** → remova a Ferramenta OpenAPI do agente (ela aponta para uma URL que
    deixou de existir)

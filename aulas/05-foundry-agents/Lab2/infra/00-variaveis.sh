@@ -3,7 +3,7 @@
 # Troque SUFIXO pelas suas iniciais + turma: export SUFIXO=isb01
 : "${SUFIXO:?defina SUFIXO antes, por exemplo: export SUFIXO=isb01}"
 
-export GRUPO="rg-aula-02-continuo"
+export GRUPO="rg-aula-05-continuo"
 export REGIAO="eastus2"
 
 export ARMAZENAMENTO="stdeva${SUFIXO}"          # 3-24 caracteres, só minúsculas e números
