@@ -8,18 +8,34 @@
 
 ## Antes de tudo
 
-· O repositório
+> **Em qual shell você está?** Este manual assume **bash** — Git Bash, WSL, macOS ou o
+> Azure Cloud Shell. No PowerShell o `\` de continuação de linha e o `$(date ...)` não
+> existem, e os blocos abaixo quebram no parser. É um minuto de decisão que economiza
+> vinte de depuração.
+
+### O repositório
 
 ```bash
 git clone https://github.com/IsaiasBritto/aie-cloud.git
-cd aie-cloud/aulas/05-foundry-agents/Lab2
+export DEVA_CONTINUO="$PWD/aie-cloud/aulas/05-foundry-agents/Lab2"
+cd "$DEVA_CONTINUO"
 ```
+
+Guarde o caminho numa variável: você vai abrir três terminais, e `export` não atravessa
+janela. Em cada terminal novo, repita as duas linhas antes de qualquer coisa —
+`echo $DEVA_CONTINUO` no terminal 1 imprime o valor para colar nos outros.
+
+O nome tem sublinhado, não hífen: `deva-continuo=` o bash lê como comando, não como
+atribuição.
 
 `git clone` só aceita a URL do **repositório**. A URL que aparece na barra do navegador
 (`.../tree/main/aulas/...`) é caminho de navegação do site, e o git responde
 `repository not found`.
 
-### 1 · Entrar e escolher a assinatura
+A pasta do laboratório é `Lab2`. O `deva-continuo` que aparece na árvore do README é o
+nome do projeto, não o da pasta.
+
+### A assinatura
 
 ```bash
 az login
@@ -27,14 +43,47 @@ az account show --query "{assinatura:name, id:id}" -o table
 az account set --subscription "<sua assinatura>"
 ```
 
-E o orçamento — que não é opcional num módulo em que o agente acorda sozinho:
+Confira que a assinatura listada é a que você quer gastar. Quem tem mais de uma descobre
+isso tarde.
+
+### O orçamento — que não é opcional num módulo em que o agente acorda sozinho
 
 ```bash
-az consumption budget create \
-  --budget-name orc-aula-05-continuo \
-  --amount 10 --category cost --time-grain monthly \
-  --start-date $(date +%Y-%m-01) --end-date $(date -d "+3 months" +%Y-%m-01)
+bash infra/00-orcamento.sh
 ```
+
+Cria um orçamento de **US$ 10 por mês, válido por 3 meses**, com alertas em 50%, 80% e
+100% enviados para o e-mail da sua própria conta do `az login` — o mesmo comando serve
+para a turma inteira sem edição, e cada aluno recebe o próprio aviso. Não cria nenhum
+recurso que gere custo, e pode ser repetido à vontade: é um `PUT`, sobrescreve em vez de
+duplicar.
+
+Para mudar teto, prazo ou destinatário:
+
+```bash
+VALOR=25 MESES=6 EMAIL=voce@exemplo.com bash infra/00-orcamento.sh
+```
+
+**Se o script falhar**, não insista no terminal. Crie pelo portal — leva um minuto:
+*Gerenciamento de Custos → Orçamentos → Adicionar*, US$ 10, redefinição mensal, alertas
+em 50%, 80% e 100%. O que não pode é seguir para o passo 2 sem orçamento.
+
+> **Por que um script, e não `az consumption budget create`?**
+> O grupo de comandos `consumption` está em preview, e o corpo que a CLI monta hoje está
+> fora de sincronia com o serviço: devolve `(400) Invalid budget configuration, please
+> use filter interface with 2019-05-01-preview version` sem que haja nada de errado com
+> os seus parâmetros. É bug conhecido e aberto
+> ([azure-cli#29950](https://github.com/Azure/azure-cli/issues/29950)). O script conversa
+> direto com a API de budgets, na versão `2024-08-01`.
+>
+> Isso é conteúdo de aula, não rodapé: **preview quer dizer bom para aprender, arriscado
+> para prometer em contrato** — e vale para um comando de CLI tanto quanto para a Memória
+> e as Skills do Foundry.
+
+E lembre do que o orçamento é e do que não é: **ele avisa, não freia.** O Azure não tem
+limite rígido de gasto. O freio que interrompe de verdade é a **cota** — tokens por
+minuto por implantação. O orçamento serve para alguém descobrir no segundo dia, e não na
+fatura.
 
 ---
 
@@ -43,12 +92,8 @@ az consumption budget create \
 Antes de provisionar qualquer coisa, veja o ciclo inteiro funcionando local. É o melhor
 uso possível de dois minutos.
 
-
-
 ```bash
-git clone https://github.com/IsaiasBritto/aie-cloud.git
-export DEVA_CONTINUO="$PWD/aie-cloud/aulas/05-foundry-agents/Lab2"
-cd "$DEVA_CONTINUO"
+cd "$DEVA_CONTINUO"          # definido em "Antes de tudo"
 python -m venv .venv && source .venv/bin/activate
 pip install -r api/requisitos.txt -r web/requisitos.txt
 
@@ -63,6 +108,14 @@ python gatilho/disparador.py --semear
 python gatilho/ciclo_do_agente.py --uma-volta --propor
 python gatilho/ciclo_do_agente.py --uma-volta
 python gatilho/ciclo_do_agente.py --uma-volta
+```
+
+Os terminais 2 e 3 são janelas novas: nelas a variável e o `.venv` não existem ainda.
+Comece cada uma com
+
+```bash
+export DEVA_CONTINUO=<o caminho impresso por echo $DEVA_CONTINUO no terminal 1>
+cd "$DEVA_CONTINUO" && source .venv/bin/activate
 ```
 
 Abra <http://localhost:8501>. Ou, se preferir containers:
