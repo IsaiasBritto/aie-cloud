@@ -417,6 +417,19 @@ O segundo devolve o usuário e duas senhas:
 Guarde o **username** e **uma** das senhas — você só vai precisar deles se o portal pedir
 (situação B do passo 6.2).
 
+> ⚠️ **O `--name` desses dois comandos é o nome do REGISTRO, não o do aplicativo.** É um erro
+> comum, porque quase todo comando `az containerapp` usa `--name` para o aplicativo — e aqui o
+> comando é `az acr`. Passar `ca-deva3-api` ou `ca-deva3-web` devolve:
+>
+> ```
+> Registry names may contain only alpha numeric characters and must be between 5 and 50 characters
+> ```
+>
+> Não é problema de tamanho nem de caractere: é o nome errado. O valor certo é
+> `acrdeva3<sufixo>` — o mesmo do Módulo 4. E este passo se faz **uma vez só**: o usuário
+> administrador vale para o registro inteiro, ou seja, para as duas imagens
+> (`deva3-api` e `deva3-web`).
+
 **Pelo portal**, se preferir não usar terminal:
 
 1. Portal → **Registros de contêiner** → **`acrdeva3<sufixo>`**.
@@ -662,23 +675,206 @@ serviço de visão. Volte ao Módulo 3 e teste o endpoint direto.
 > 🗺️ A partir daqui vale abrir o [diagrama de sequência](imagens/03-sequencia.png):
 > ele mostra exatamente o que vai acontecer quando o aluno clicar em "Analisar imagem".
 
-Repita o Módulo 6 com estas diferenças. O acesso ao registro **já está liberado** — o passo
-6.1 vale para as duas imagens, não precisa refazer. Os passos **6.3** (variável de ambiente) e
-**6.4** (entrada) valem igual aqui, com os valores da tabela abaixo.
+A interface é um segundo Aplicativo de Contêiner, publicado do **mesmo registro**, no **mesmo
+ambiente**, a partir da imagem `deva3-web` que você construiu no Módulo 5. O caminho é o mesmo
+do Módulo 6 — mas com três diferenças que quebram o lab se passarem batido: a **porta é 8501**,
+a variável é **uma só** (`API_URL`) e ela precisa apontar para a **URL da API**, não para a
+própria interface.
 
+| | API (Módulo 6) | Interface (Módulo 7) |
+|---|---|---|
+| Aplicativo | `ca-deva3-api` | `ca-deva3-web` |
+| Imagem | `deva3-api:v1` | `deva3-web:v1` |
+| Porta de destino | `8000` | **`8501`** |
+| Variáveis | sete (duas como segredo) | **uma**, sem segredo |
+| Fala com | Azure AI Vision e Blob | **a API do Módulo 6** |
+
+> ⚠️ **Só comece este módulo depois que o `/saude` da API responder.** A interface consulta a
+> API assim que abre, para desenhar o painel lateral. Se a API não estiver de pé, a tela sobe
+> com um erro vermelho — e você vai depurar a interface quando o problema está no outro
+> aplicativo.
+
+### 7.1 Antes de criar: copiar a URL da API
+
+Portal → **Aplicativos de Contêiner** → **`ca-deva3-api`** → **Visão geral** → campo
+**URL do aplicativo**. É algo assim:
+
+```
+https://ca-deva3-api.<identificador>.eastus2.azurecontainerapps.io
+```
+
+Copie e guarde. Esse é o único valor novo deste módulo.
+
+> ⚠️ **Copie a URL limpa.** Sem `/saude` no fim, sem `/docs`, sem barra final. O que a interface
+> espera é a **raiz** — ela mesma acrescenta `/saude` e `/detectar` na hora de chamar.
+
+O acesso ao registro **já está liberado**: o passo 6.1 vale para o registro inteiro, e portanto
+para as duas imagens. Não refaça.
+
+### 7.2 Criar o Aplicativo de Contêiner
+
+1. Busque **Aplicativos de Contêiner** → **+ Criar**.
+
+2. Aba **Noções Básicas**:
+
+   | Campo | Valor |
+   |---|---|
+   | **Assinatura** * | Azure for Students |
+   | **Grupo de recursos** * | `rg-aula-05` |
+   | **Nome do aplicativo contêiner** * | `ca-deva3-web` |
+   | **Otimizar para Azure Functions** | deixe **desmarcado** |
+   | **Origem da implantação** | **Imagem de contêiner** |
+   | **Ambiente do Aplicativo de Contêiner** | **`cae-aula-05`** — selecione o que já existe |
+
+   > ⚠️ **Não crie um ambiente novo.** O campo oferece "Criar novo" de novo, e é tentador
+   > clicar. Um segundo ambiente significa outra rede virtual gerenciada, outro workspace de
+   > log e mais alguns minutos de espera — sem nenhum ganho. Os dois aplicativos convivem no
+   > mesmo ambiente, que é justamente para isso que ele serve.
+
+3. Aba **Contêiner**:
+
+   | Campo | Valor |
+   |---|---|
+   | **Nome** | `web` |
+   | **Origem da imagem** | Registro de Contêiner do Azure |
+   | **Registro** | `acrdeva3<sufixo>.azurecr.io` |
+   | **Imagem** | `deva3-web` |
+   | **Marca da imagem** | `v1` |
+   | **CPU e memória** | 0,5 CPU · 1 Gi |
+
+   Se o registro não aparecer na lista, é a **situação B** do passo 6.2: escolha
+   **Registro privado** e informe servidor, usuário e senha à mão.
+
+   Role até o fim da aba: se a seção **Variáveis de ambiente** aparecer aqui, adicione já
+
+   | Nome | Origem | Valor |
+   |---|---|---|
+   | `API_URL` | Valor manual | a URL que você copiou no 7.1 |
+
+   Se não aparecer, siga em frente — o passo **7.3** mostra como adicionar depois.
+
+4. Aba **Entrada**:
+
+   | Campo | Valor |
+   |---|---|
+   | **Entrada** | Habilitada |
+   | **Tráfego de entrada** | Aceitar tráfego de qualquer lugar |
+   | **Tipo de transporte** | Automático |
+   | **Porta de destino** | **`8501`** |
+
+   > 💡 **De onde vem o 8501?** Do `EXPOSE 8501` do `web/Dockerfile` e do
+   > `--server.port=8501` no comando do Streamlit. Porta de destino é a porta **em que o
+   > contêiner escuta**, não a porta pela qual você acessa — de fora é sempre `443`, com o
+   > certificado que a Azure emite. Errar isso é o motivo nº 1 de "a URL abre e fica em branco".
+
+5. **Examinar + criar** → **Criar**. De 2 a 4 minutos.
+
+**Pela CLI**, tudo de uma vez:
+
+```bash
+az containerapp create \
+  --name ca-deva3-web --resource-group rg-aula-05 \
+  --environment cae-aula-05 \
+  --image acrdeva3<sufixo>.azurecr.io/deva3-web:v1 \
+  --registry-server acrdeva3<sufixo>.azurecr.io \
+  --target-port 8501 --ingress external \
+  --cpu 0.5 --memory 1Gi \
+  --env-vars API_URL="https://ca-deva3-api.<identificador>.eastus2.azurecontainerapps.io"
+```
+
+### 7.3 A variável de ambiente
+
+Vale aqui a mesma regra do passo 6.3: **depois de criado, variável de ambiente só muda com uma
+revisão nova.** O caminho é idêntico —
+
+Menu esquerdo → **Revisões e réplicas** → **Criar nova revisão** → aba **Contêiner** →
+marque a caixa do contêiner na lista → **✏️ Editar** → seção **Variáveis de ambiente** →
+**Adicionar**:
+
+| Nome | Origem | Valor | Obrigatória? |
+|---|---|---|---|
+| `API_URL` | Valor manual | `https://ca-deva3-api.<identificador>.eastus2.azurecontainerapps.io` | **sim** |
+| `TEMPO_LIMITE_SEGUNDOS` | Valor manual | `60` | não — é o padrão do código |
+
+**Salvar** → **Criar**.
+
+> ⚠️ Continuam valendo os dois desvios do Módulo 6: **não** use o **+ Adicionar** (ele
+> acrescenta um sidecar ou um init, não edita o contêiner que existe) e **não** vá para a aba
+> **Volumes**. O caminho é caixa de seleção + **Editar**, na aba **Contêiner**.
+
+> 💡 **Nenhuma variável aqui é segredo** — a URL da API é pública, é o mesmo endereço que a
+> turma abre no Postman. Compare com os sete valores do Módulo 6: lá havia chave e cadeia de
+> conexão. Vale dizer isso à turma: **segredo é o que não pode aparecer em log**; endereço não é.
+
+> 💡 **`TEMPO_LIMITE_SEGUNDOS`** é quanto a interface espera a API responder antes de desistir.
+> O padrão de 60 s cobre com folga a chamada ao serviço de visão. Se a sala estiver com internet
+> ruim e aparecerem erros de *timeout*, suba para `120` — é o único ajuste fino deste módulo.
+
+**Pela CLI:**
+
+```bash
+az containerapp update -n ca-deva3-web -g rg-aula-05 \
+  --set-env-vars API_URL="https://ca-deva3-api.<identificador>.eastus2.azurecontainerapps.io"
+```
+
+### 7.4 A entrada (ingress)
+
+Se a **Visão geral** mostrar **`URL do aplicativo: Entrada desabilitada`**, repita o passo 6.4
+com a porta desta imagem: menu esquerdo → **Rede** → **Entrada**.
 
 | Campo | Valor |
 |---|---|
-| **Nome do aplicativo contêiner** | `ca-deva3-web` |
-| **Ambiente** | `cae-aula-05` (o mesmo, não crie outro) |
-| **Imagem** | `deva3-web` · marca `v1` |
-| **Porta de destino** | `8501` |
-| **Variável de ambiente** | `API_URL` = `https://<URL-da-api>` |
+| **Entrada** | Habilitada |
+| **Tráfego de entrada** | Aceitar tráfego de qualquer lugar |
+| **Tipo de transporte** | Automático |
+| **Porta de destino** | **`8501`** |
 
-Abra a URL da interface. Suba uma foto. Veja a caixa aparecer.
+```bash
+az containerapp ingress enable -n ca-deva3-web -g rg-aula-05 \
+  --type external --target-port 8501 --transport auto
+```
 
-✅ **Checkpoint do laboratório:** a foto sobe, a caixa é desenhada, a confiança aparece
-e o JSON completo fica visível na tela.
+> 💡 **Por que "Automático" e não HTTP/1.1?** O Streamlit conversa com o navegador por
+> **WebSocket** depois que a página carrega — é assim que o resultado aparece sem recarregar a
+> tela. O transporte automático negocia HTTP/2 e WebSocket sozinho. Se você forçar um tipo e a
+> página abrir mas nunca reagir aos cliques, é aqui que se olha.
+
+### 7.5 Testar — o checkpoint da aula
+
+Na **Visão geral** de `ca-deva3-web`, copie a **URL do aplicativo** e abra no navegador.
+A primeira carga leva alguns segundos (o Streamlit sobe sob demanda).
+
+Confira nesta ordem:
+
+1. **O painel lateral, à esquerda.** Deve mostrar `API: <a URL da sua API>` e uma faixa
+   **verde** de saudável, com o **limiar de confiança** e o **blob configurado**. Faixa vermelha
+   dizendo que não foi possível falar com a API significa `API_URL` errada — volte ao 7.3.
+2. **Modo de detecção**: deixe em **Pessoas · Image Analysis 4.0**.
+3. **Consentimento**: marque, se quiser ver a imagem gravada no Blob do Módulo 2. Desmarcado,
+   só o JSON é guardado — e essa é a diferença que vale discutir com a turma.
+4. **Envie uma foto** e clique em **Analisar imagem**.
+
+✅ **Checkpoint do laboratório:** a foto sobe, a caixa é desenhada em volta da pessoa, a
+confiança aparece nos cartões do topo, a tabela de coordenadas é preenchida e o **payload JSON**
+completo fica visível no fim da coluna da direita.
+
+> 💡 **É o mesmo JSON do Postman.** Vale abrir os dois lado a lado: a interface não tem
+> inteligência nenhuma, ela desenha o que a API respondeu. Isso torna concreta a separação
+> entre serviço e apresentação — e é o gancho para a próxima aula, em que o **Deva** entra no
+> lugar da tela e transforma esse número em decisão.
+
+### 7.6 Erros comuns neste módulo
+
+| Erro | Causa | Solução |
+|---|---|---|
+| A URL abre e fica **em branco** ou dá erro 502 | porta de destino errada | tem que ser **8501**, não 8000 — passo **7.4** |
+| Painel lateral vermelho: "Não foi possível falar com a API" | `API_URL` ausente, errada ou com `/saude` no fim | passo **7.3** — a URL é a **raiz** da API, sem barra final |
+| A tela abre mas não reage aos cliques | transporte forçado, WebSocket bloqueado | **Rede → Entrada → Tipo de transporte = Automático** |
+| A revisão sobe e morre | quase sempre imagem errada (`deva3-api` no lugar de `deva3-web`) | **Monitoramento → Fluxo de logs** e confira a imagem na revisão |
+| Criou um ambiente novo por engano | o campo oferece "Criar novo" na aba Noções Básicas | apague o ambiente extra; os dois apps devem ficar em `cae-aula-05` |
+| `Registry names may contain only alpha numeric characters...` | passou `ca-deva3-web` para um comando `az acr` | o `--name` do `az acr` é o **registro**: `acrdeva3<sufixo>` — passo **6.1** |
+| Timeout ao analisar a foto | rede da sala lenta, ou API demorando no serviço de visão | suba `TEMPO_LIMITE_SEGUNDOS` para `120` e teste o `/detectar` direto no Postman |
+| A caixa não é desenhada, mas o JSON aparece | a resposta não trouxe detecção | não é erro da interface: a foto não tem pessoa reconhecível, ou a confiança ficou abaixo do limiar |
 
 ---
 
@@ -714,4 +910,5 @@ e o JSON completo fica visível na tela.
 | O registro não aparece ao criar o Container App | Usuário administrador do ACR desligado | `az acr update --name <acr> --admin-enabled true` (Módulo 6.1) |
 | `UNAUTHORIZED` ao implantar o Container App | O app não tem credencial para puxar do ACR | Módulo 6.1 — habilite o administrador ou use identidade gerenciada |
 | Interface abre e não fala com a API | `API_URL` errada ou sem `https://` | Corrija a variável |
+| `Registry names may contain only alpha numeric characters` | Passou o nome do **aplicativo** a um comando `az acr` | O `--name` do `az acr` é o registro: `acrdeva3<sufixo>` |
 | `ModuleNotFoundError: api` | Imagem construída da pasta errada | Construa a partir da **raiz** do projeto |
