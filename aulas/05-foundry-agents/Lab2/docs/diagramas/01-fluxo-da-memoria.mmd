@@ -1,0 +1,38 @@
+flowchart LR
+    subgraph CONVERSA["Durante a conversa"]
+        AUD["Auditor humano<br/>corrige o Deva"]
+        AG["Deva<br/>kind: prompt"]
+    end
+
+    subgraph SERVICO["Serviço de Continuidade"]
+        direction TB
+        VAL{"Validação<br/>da proposta"}
+        PEND[("memoria-pendente.md<br/>não vale nada ainda")]
+        APROV[("MEMORY.md<br/>o agente lê no início<br/>de toda sessão")]
+    end
+
+    TELA["Tela do Deva<br/>aba Propostas"]
+    INCID["Incidente de segurança<br/>no resumo do lote"]
+    POLICY["policy.md<br/>outro dono, outro processo"]
+
+    AUD -->|"'não é assim que a gente classifica'"| AG
+    AG -->|"POST /memoria/proposta<br/>com texto e EVIDÊNCIA"| VAL
+
+    VAL -->|"padrão de manipulação<br/>(veio de dentro do documento)"| INCID
+    VAL -->|"tenta ALTERAR limite ou alçada"| POLICY
+    VAL -->|proposta válida| PEND
+
+    PEND --> TELA
+    TELA -->|"Aprovar<br/>cabeçalho X-Auditor"| APROV
+    TELA -->|Descartar| DESC["Arquivada com motivo"]
+
+    APROV -->|"GET /memoria"| AG
+
+    AG -.->|"POST .../aprovar<br/>SEM X-Auditor"| BLOQ["403 · autorização de auditor ausente"]
+
+    classDef perigo fill:#22161B,stroke:#EB0B4F,stroke-width:2px,color:#F4F3EF
+    classDef aviso fill:#221E14,stroke:#FFD579,color:#F4F3EF
+    classDef ok fill:#12222A,stroke:#03E3FD,color:#F4F3EF
+    class BLOQ,INCID perigo
+    class PEND,TELA aviso
+    class APROV,AG ok

@@ -1,0 +1,49 @@
+sequenceDiagram
+    autonumber
+    actor AUD as Auditor · Controladoria
+    participant BLOB as Blob · container entrada
+    participant LA as Logic App<br/>gatilho por evento
+    participant API as Serviço de Continuidade
+    participant DEVA as Deva · agente do Foundry
+    participant TELA as Tela do Deva
+
+    Note over BLOB,LA: NÍVEL 3 · ele começa sozinho
+
+    AUD->>BLOB: solta 4 PDFs na pasta
+    BLOB->>LA: BlobCreated
+    LA->>API: POST /fila/documentos (um por arquivo)
+    API-->>LA: recebido
+
+    Note over DEVA,API: NÍVEL 2 · ele lembra de ontem
+
+    DEVA->>API: GET /memoria
+    API-->>DEVA: regras aprovadas por humano
+    DEVA->>API: GET /fila
+    API-->>DEVA: 4 comigo · 0 com gente
+
+    loop uma volta por documento
+        DEVA->>DEVA: extrai · normaliza · aplica policy.md
+        DEVA->>API: POST /fila/documentos/[id]/estado
+    end
+
+    Note over DEVA,API: NÍVEL 4 · ele para no que não é dele
+
+    API-->>DEVA: 2 conforme · 1 duplicado · 1 EXCEÇÃO
+    DEVA->>API: tenta liberar a exceção
+    API-->>DEVA: 409 · só é liberado por uma pessoa
+
+    AUD->>DEVA: "gorjeta conta dentro do limite, não fora"
+    DEVA->>API: POST /memoria/proposta (texto + evidência)
+    API-->>DEVA: prop-f8f9 · aguardando auditor
+    DEVA->>API: tenta aprovar a própria proposta
+    API-->>DEVA: 403 · autorização de auditor ausente
+
+    Note over AUD,TELA: a decisão é de gente, e fica registrada
+
+    AUD->>TELA: abre a aba Propostas
+    TELA->>API: POST .../aprovar · X-Auditor: Camila Rocha
+    API-->>TELA: linha gravada no MEMORY.md
+    AUD->>TELA: abre a aba Exceções e libera o documento
+
+    DEVA->>API: GET /memoria (próxima sessão)
+    API-->>DEVA: agora com a regra nova

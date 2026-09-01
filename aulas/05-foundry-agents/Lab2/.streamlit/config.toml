@@ -1,0 +1,13 @@
+# Tema FIAP. Sem isto, o Streamlit sobe claro e a tela pisca branco no projetor.
+[theme]
+base = "dark"
+primaryColor = "#EB0B4F"
+backgroundColor = "#15151A"
+secondaryBackgroundColor = "#1C1C22"
+textColor = "#F4F3EF"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
