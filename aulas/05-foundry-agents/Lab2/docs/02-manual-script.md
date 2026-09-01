@@ -43,8 +43,12 @@ az consumption budget create \
 Antes de provisionar qualquer coisa, veja o ciclo inteiro funcionando local. É o melhor
 uso possível de dois minutos.
 
+
+
 ```bash
-git clone <seu-repositorio> && cd deva-continuo
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+export DEVA_CONTINUO="$PWD/aie-cloud/aulas/05-foundry-agents/Lab2"
+cd "$DEVA_CONTINUO"
 python -m venv .venv && source .venv/bin/activate
 pip install -r api/requisitos.txt -r web/requisitos.txt
 
