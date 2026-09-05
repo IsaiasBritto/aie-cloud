@@ -9,6 +9,15 @@ Feito para ser entendido inteiro em 10 minutos e crescer daí.
 
 ## Instalar (PowerShell)
 
+### Passo 1 — baixar o projeto
+
+```powershell
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud\aulas\05-foundry-agents\01-agente-Eva-local
+```
+
+### Passo 2 — criar o ambiente e instalar dependências
+
 O PowerShell do Windows (5.1) **não aceita `&&`** — isso é sintaxe do `cmd` e do
 PowerShell 7+. Use uma linha por comando:
 
