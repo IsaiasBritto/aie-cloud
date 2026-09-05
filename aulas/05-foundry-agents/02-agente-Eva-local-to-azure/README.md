@@ -9,8 +9,14 @@ modelo mudou de lugar.
 
 ---
 
-## Instalar
+### Passo 1 — baixar o projeto
 
+```powershell
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud\aulas\05-foundry-agents\02-agente-Eva-local-to-azure
+```
+
+### Passo 2 — criar o ambiente e instalar dependências
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1

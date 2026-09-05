@@ -114,7 +114,7 @@ exatamente o que ele consegue fazer.
 Alterar o arquivo agent.md é o que principalmente  muda o comportamento do agente e não exige uma linha de código. Os `TODO`
 dentro do arquivo indicam o que trocar.
 
-# 3. o registro
+# 3. Registro
 ## Exercício
 
 Em ordem de dificuldade:
@@ -123,16 +123,6 @@ Em ordem de dificuldade:
 2. **Sabotar a `description`** — troque a da `somar` por *"faz uma coisa"* e
    veja o modelo parar de chamá-la. É a forma mais rápida de entender que a
    descrição é a interface entre o modelo e o seu código.
-3. **Criar uma ferramenta** do seu domínio.
-4. **Ferramenta que lê um arquivo** — cuidado: valide o caminho, senão o agente
-   lê qualquer coisa do disco. O `exercicios_tools.py` já traz uma pronta, com
-   o roteiro de aula sobre sandbox.
-5. **Memória automática** — hoje o `memory.md` você edita à mão. Crie uma
-   ferramenta `salvar_memoria(nota)` e deixe o agente decidir o que guardar.
-   É o menor exercício possível de autonomia.
-6. **Histórico entre sessões** — salvar as mensagens em JSON e recarregar.
-7. **Streaming na interface** — resposta palavra a palavra em vez do spinner.
-
 ---
 
 ## 6. Problemas comuns
