@@ -1,0 +1,6 @@
+openai>=1.40.0
+python-dotenv>=1.0.0
+streamlit>=1.36.0
+
+# Só é necessário se você usar AZURE_FOUNDRY_AUTH=entra (sem chave).
+azure-identity>=1.17.0
