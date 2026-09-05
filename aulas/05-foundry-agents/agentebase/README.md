@@ -1,15 +1,19 @@
 # Agente base — template
 
-Esqueleto mínimo de um agente de IA em Python. Copie esta pasta, troque o nome
-e comece o seu.
-
-São ~200 linhas de código no total. Tudo que está aqui é necessário; nada é
-enfeite. As ferramentas de exercício ficam num arquivo à parte
-(`exercicios_tools.py`), desligadas — o esqueleto não depende delas.
+Esse projeto tem a finalidade de ser um esqueletobase para nossos agentes de IA em Python.
 
 ---
 
 ## 1. Rodar em 5 minutos
+
+### Passo 1 — baixar o projeto
+
+```powershell
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud\aulas\05-foundry-agents\agentebase
+```
+
+### Passo 2 — criar o ambiente e instalar dependências
 
 ```powershell
 python -m venv .venv
