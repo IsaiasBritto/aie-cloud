@@ -46,15 +46,15 @@ Para cada serviço, identifique se é IaaS, PaaS, SaaS ou FaaS. Justifique em um
 
 | Serviço | Modelo (IaaS/PaaS/SaaS/FaaS) | Justificativa |
 |---------|------------------------------|---------------|
-| Gmail | | |
-| Azure Virtual Machines | | |
-| Azure App Service (hospedar uma API) | | |
-| AWS Lambda | | |
-| Azure SQL Database | | |
-| Salesforce CRM | | |
-| Google Kubernetes Engine (GKE) | | |
-| Azure Blob Storage | | |
-| Azure OpenAI Service | | |
+| Gmail | SaaS | O usuário acessa o serviço de e-mail pronto pela internet, sem precisar instalar, hospedar ou manter os componentes responsáveis pelo funcionamento da aplicação. |
+| Azure Virtual Machines | IaaS | Disponibiliza capacidade computacional virtual na nuvem, mas deixa sob responsabilidade do cliente a administração do sistema operacional e dos softwares executados na VM. |
+| Azure App Service (hospedar uma API) | PaaS | Oferece um ambiente gerenciado para publicação de aplicações e APIs, permitindo que a equipe se concentre no desenvolvimento em vez da administração dos servidores. |
+| AWS Lambda | FaaS | Executa trechos de código quando determinados eventos ou requisições ocorrem, sem exigir que a aplicação mantenha uma máquina virtual dedicada em funcionamento. |
+| Azure SQL Database | PaaS | Fornece um banco SQL gerenciado na nuvem, reduzindo tarefas relacionadas à manutenção da infraestrutura e permitindo maior foco na estrutura e utilização dos dados. |
+| Salesforce CRM | SaaS | O CRM é disponibilizado diretamente aos usuários através da nuvem, oferecendo funcionalidades de negócio prontas sem exigir a construção ou manutenção da plataforma que o hospeda. |
+| Google Kubernetes Engine (GKE) | PaaS/IaaS (híbrido) | O GKE divide responsabilidades: o Google administra componentes da plataforma Kubernetes, enquanto a equipe continua responsável pela implantação e administração das cargas executadas no cluster. |
+| Azure Blob Storage | PaaS | Disponibiliza armazenamento de objetos como um recurso gerenciado da nuvem, permitindo armazenar grandes volumes de arquivos sem administrar servidores ou discos físicos. |
+| Azure OpenAI Service | SaaS / API-as-a-Service | Permite integrar recursos de IA generativa às aplicações através de APIs, utilizando modelos hospedados e operados pela plataforma Azure. |
 
 **Gabarito esperado:**
 
@@ -82,6 +82,7 @@ Para cada serviço, identifique se é IaaS, PaaS, SaaS ou FaaS. Justifique em um
 Leia cada cenário e escolha o R de migração mais adequado (Rehost, Replatform, Refactor, Repurchase, Retire, Retain). Justifique.
 
 **Cenário A:** Empresa de logística tem sistema de rastreamento de frotas em servidor físico próprio. Código de 2008, sem documentação, só uma pessoa sabe mexer. Quer migrar rápido para ganhar elasticidade.
+Rehost - Como a prioridade é migrar rapidamente e o sistema possui código legado com pouco conhecimento disponível, mover a aplicação para uma infraestrutura equivalente na nuvem reduz a necessidade de alterações imediatas e diminui o risco da migração.
 
 **Cenário B:** Banco regional usa ERP local de RH. Análise mostra: menos de 5 usuários ativos por mês, dados raramente consultados.
 
