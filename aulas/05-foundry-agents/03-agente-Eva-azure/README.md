@@ -5,18 +5,15 @@ Apps, modelo no Microsoft Foundry, autenticação por **Managed Identity** (sem
 chave), segredo de fallback no **Key Vault** e telemetria no **Application
 Insights**.
 
-> 📘 **Três caminhos para publicar, na ordem de aprendizado:**
+> 📘 **Dois caminhos para publicar, na ordem de aprendizado:**
 >
-> 1. [GUIA-DEPLOY-PORTAL.md](GUIA-DEPLOY-PORTAL.md) — clicando. Você vê o que
->    cada recurso é.
-> 2. [GUIA-DEPLOY-CLI.md](GUIA-DEPLOY-CLI.md) — os mesmos recursos em ~20
->    comandos. Você vê como automatizar.
-> 3. [GUIA-DEPLOY-TERRAFORM.md](GUIA-DEPLOY-TERRAFORM.md) — infraestrutura como
->    código, com `plan` antes de aplicar. Você vê como descrever.
+> 1. [GUIA-DEPLOY-PORTAL.md](Documentacao/GUIA-DEPLOY-PORTAL.md) — clicando.
+>    Você vê o que cada recurso é.
+> 2. [GUIA-DEPLOY-CLI.md](Documentacao/GUIA-DEPLOY-CLI.md) — os mesmos
+>    recursos em ~20 comandos. Você vê como automatizar.
 >
-> Nenhum substitui os outros: o portal é para entender e investigar incidente,
-> a CLI para tarefa pontual, o Terraform para o que precisa durar e ser
-> revisado em PR.
+> Nenhum substitui o outro: o portal é para entender e investigar incidente,
+> a CLI para tarefa pontual e para repetir o deploy.
 
 ---
 
@@ -45,6 +42,13 @@ identidade pode fazer.
 ---
 
 ## Rodar na sua máquina
+
+**Passo 1 — baixar o projeto**
+
+```powershell
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud\aulas\05-foundry-agents\03-agente-Eva-azure
+```
 
 O mesmo código roda local, sem container:
 
@@ -92,33 +96,24 @@ Eva-azure/
 ├── .dockerignore             # NOVO — a primeira linha é `.env`
 ├── requirements.txt
 ├── .env.example              # só para rodar local
-├── infra/deploy.ps1          # provisiona tudo por CLI
-├── terraform/                # NOVO — a mesma infra declarada
-│   ├── versions.tf           #   providers e versões
-│   ├── variables.tf          #   entradas
-│   ├── main.tf               #   os 17 recursos, com o porquê de cada decisão
-│   ├── outputs.tf            #   URL, nomes e comandos prontos
-│   └── terraform.tfvars.example
-├── GUIA-DEPLOY-PORTAL.md     # passo a passo clicando
-├── GUIA-DEPLOY-CLI.md        # passo a passo por comando
-├── GUIA-DEPLOY-TERRAFORM.md  # passo a passo declarado
-├── DIAGRAMAS.md              # C4 niveis 1 a 3 + observabilidade + sequencia
-├── ANATOMIA-DO-HARNESS.md    # NOVO - o que existe entre o modelo e o mundo
-├── LAB-OBSERVABILIDADE.md    # medir: KQL, iteracoes por turno, discrepancias
-├── LAB-FINOPS.md             # decidir: custo por turno, as cinco alavancas
-└── FinOps-na-Eva.pptx        # slides do bloco de FinOps em IA
+├── infra/
+│   ├── deploy.ps1            # provisiona tudo por CLI
+│   ├── custo.ps1             # consulta o custo do mes via az rest (contorna limites da API)
+│   └── consulta-custo.json   # corpo da consulta usada pelo custo.ps1
+└── Documentacao/
+    ├── GUIA-DEPLOY-PORTAL.md     # passo a passo clicando
+    ├── GUIA-DEPLOY-CLI.md        # passo a passo por comando
+    ├── DIAGRAMAS.md              # C4 niveis 1 a 3 + observabilidade + sequencia
+    ├── ANATOMIA-DO-HARNESS.md    # NOVO - o que existe entre o modelo e o mundo
+    ├── LAB-OBSERVABILIDADE.md    # medir: KQL, iteracoes por turno, discrepancias
+    └── LAB-FINOPS.md             # decidir: custo por turno, as cinco alavancas
 ```
 
 **A ordem de leitura do material didatico**, depois de publicar:
 `DIAGRAMAS.md` (como as pecas se organizam) -> `ANATOMIA-DO-HARNESS.md` (o que
 cada peca faz, e o que o modelo NAO faz) -> `LAB-OBSERVABILIDADE.md` (medir) ->
-`LAB-FINOPS.md` (decidir com o que foi medido).
-
-> **Uma diferença que vale reparar:** o Terraform usa identidade
-> **user-assigned**, e os outros dois usam **system-assigned**. Não é
-> preferência — com system-assigned existe uma dependência circular que o
-> modelo declarativo não resolve (o app precisa da role para nascer; a role
-> precisa do ID que só existe depois de nascer). O guia do Terraform explica.
+`LAB-FINOPS.md` (decidir com o que foi medido). Os quatro estão em
+`Documentacao/`.
 
 ---
 
