@@ -1,0 +1,19 @@
+{
+  "type": "ActualCost",
+  "timeframe": "MonthToDate",
+  "dataset": {
+    "granularity": "None",
+    "aggregation": {
+      "totalCost": {
+        "name": "Cost",
+        "function": "Sum"
+      }
+    },
+    "grouping": [
+      {
+        "type": "TagKey",
+        "name": "projeto"
+      }
+    ]
+  }
+}

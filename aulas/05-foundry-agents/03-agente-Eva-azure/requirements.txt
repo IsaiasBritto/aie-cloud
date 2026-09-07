@@ -1,0 +1,9 @@
+openai>=1.40.0
+python-dotenv>=1.0.0
+streamlit>=1.36.0
+
+# Autenticação por identidade (Managed Identity no container, az login local).
+azure-identity>=1.17.0
+
+# Application Insights via OpenTelemetry: latência, tokens e custo por chamada.
+azure-monitor-opentelemetry>=1.6.0

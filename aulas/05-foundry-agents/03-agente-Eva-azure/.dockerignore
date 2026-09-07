@@ -1,0 +1,17 @@
+# O que NÃO entra na imagem.
+# O .env é o item mais importante desta lista: segredo dentro de imagem vira
+# segredo em registry, e registry é copiado, versionado e compartilhado.
+
+.env
+.env.bak
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.git/
+.gitignore
+infra/
+GUIA-*.md
+README.md
