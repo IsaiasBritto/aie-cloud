@@ -17,15 +17,8 @@ sinônimos e não são:
 | --- | --- | --- |
 | **Recurso** | O objeto do Azure que você paga e que tem endpoint e chaves | `fiap-foundry` |
 | **Projeto** | Um agrupamento dentro do recurso (organização, permissões) | `curso-agentes` |
-| **Modelo** | O modelo em si, do catálogo | `gpt-4o-mini` |
+| **Modelo** | O modelo em si, do catálogo | `gpt-5.4-mini` |
 | **Deployment** | Uma **instância** daquele modelo, com nome e cota que **você** define | `eva-aula` |
-
-**A confusão mais cara de tempo:** no código você não passa o nome do modelo.
-Você passa o **nome do deployment**. São coisas diferentes, e podem ter nomes
-diferentes de propósito — é isso que te deixa trocar `gpt-4o-mini` por `gpt-4o`
-sem alterar o código, só reapontando o deployment.
-
-Voltamos nisso na seção 6.
 
 ---
 
@@ -105,7 +98,7 @@ cria uma instância de um modelo do catálogo, com nome e cota próprios.
 5. Confirme e espere o status ficar **Succeeded**.
 
 > **Escolha do nome do deployment.** Para aprender, usar o mesmo nome do modelo
-> (`gpt-4o-mini`) evita confusão. Para produção, um nome funcional (`eva-prod`)
+> (`gpt-5.4-mini`) evita confusão. Para produção, um nome funcional (`eva-prod`)
 > é melhor: você troca o modelo por trás sem tocar em `.env` nem em código.
 > É indireção — como um CNAME de DNS.
 
@@ -153,7 +146,7 @@ A resposta curta: **você passa o nome do deployment no parâmetro `model=`**.
 
 ```python
 resposta = cliente.chat.completions.create(
-    model="eva-aula",          # <-- o NOME DO DEPLOYMENT, não "gpt-4o-mini"
+    model="eva-aula",          # <-- o NOME DO DEPLOYMENT, não "gpt-5.4-mini"
     messages=mensagens,
     tools=FERRAMENTAS,
 )
@@ -171,12 +164,6 @@ modelo; no Azure é o nome do deployment.
 | **Na tela** | campo "Deployment" na barra lateral do `app.py` | comparar modelos ao vivo |
 | **Por chamada** | `model="outro-deployment"` direto no `create()` | rotear por tarefa |
 
-A terceira é a mais interessante em arquitetura: você pode implantar
-`gpt-4o-mini` **e** `gpt-4o` no mesmo recurso, e escolher por chamada — o
-`mini` para conversa normal, o grande só quando a pergunta é difícil. Um
-endpoint, uma chave, dois deployments. Isso é roteamento de modelo, e é uma
-das razões práticas de usar o Foundry em vez de falar direto com cada provedor.
-
 ```python
 def escolher_deployment(pergunta: str) -> str:
     """Exemplo de roteamento: barato por padrão, caro só quando precisa."""
@@ -187,8 +174,8 @@ def escolher_deployment(pergunta: str) -> str:
 
 ### O que você NÃO consegue fazer pelo código
 
-Usar um modelo que não tem deployment. Se `gpt-4o` está no catálogo mas você
-não implantou, `model="gpt-4o"` devolve **404 DeploymentNotFound** — o Azure não
+Usar um modelo que não tem deployment. Se `gpt-5.4-mini` está no catálogo mas você
+não implantou, `model="gpt-5.4-mini"` devolve **404 DeploymentNotFound** — o Azure não
 implanta sob demanda. Deployment é um ato administrativo, feito no portal ou
 por CLI/IaC, não em tempo de execução.
 
@@ -357,7 +344,7 @@ três roles de que precisa e nenhuma a mais.
 | **`O token '&&' não é um separador válido`** ou erro com `\` | Copiou comando em bash para o PowerShell. Uma linha por comando; continuação é crase |
 | **429 Too Many Requests** | TPM do deployment esgotado. Aumente a cota ou espere |
 | **Connection error** | Endpoint com erro de digitação, ou proxy corporativo |
-| **O modelo ignora as ferramentas** | O deployment é de um modelo que não suporta tool calling. Use um `gpt-4o`/`gpt-4o-mini` |
+| **O modelo ignora as ferramentas** | O deployment é de um modelo que não suporta tool calling. Use `gpt-5.4-mini` |
 | **Modelo não aparece para implantar** | Cota ou região, quase nunca permissão. Tente outra região |
 
 Rode `python verificar.py` — ele testa cada etapa isoladamente e traduz esses
@@ -375,7 +362,7 @@ Comparando com a Eva original:
 ```
 
 ```diff
-- model="gpt-4o-mini"          # nome do modelo
+- model="gpt-5.4-mini"          # nome do modelo
 + model="eva-aula"             # nome do deployment
 ```
 
