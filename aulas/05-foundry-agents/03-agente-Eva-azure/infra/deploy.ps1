@@ -109,6 +109,59 @@ function Passo {
     }
 }
 
+function Tentar {
+    <#  Como o `Passo`, mas com PACIENCIA.
+
+        Nem todo erro do Azure e culpa sua. O plano de controle devolve 500,
+        503 e 429 de vez em quando - especialmente logo depois de criar um
+        recurso, quando ele ainda esta assentando. Ja vimos isto na turma:
+
+          === 8. Managed Identity ===
+          ERROR: (InternalServerError) Internal server error occurred.
+
+        O app tinha acabado de nascer e estava rodando; o `identity assign`
+        pegou o servico no meio do caminho. Rodar de novo resolvia.
+
+        A licao: erro TRANSITORIO merece nova tentativa; erro de CONFIGURACAO
+        merece parar. Repetir os dois e teimosia; parar nos dois e fragilidade.
+        Por isso a lista de padroes abaixo e curta e explicita - qualquer coisa
+        fora dela aborta na hora, como antes.  #>
+    param([string]$Oque, [scriptblock]$Bloco, [int]$Tentativas = 4)
+
+    $transitorio = 'InternalServerError|Internal server error|\(500\)|\(503\)|' +
+                   'ServiceUnavailable|TooManyRequests|\(429\)|GatewayTimeout|' +
+                   '\(504\)|Please retry|please try again|temporarily unavailable'
+    $espera = 20
+
+    for ($i = 1; $i -le $Tentativas; $i++) {
+        $saida = & $Bloco 2>&1
+        if ($LASTEXITCODE -eq 0) { return }
+
+        $texto = ($saida | Out-String)
+
+        if ($i -lt $Tentativas -and $texto -match $transitorio) {
+            Write-Host "  erro transitorio do Azure. Tentativa $i de $Tentativas  -  esperando ${espera}s..." -ForegroundColor DarkYellow
+            Start-Sleep -Seconds $espera
+            $espera = [Math]::Min($espera * 2, 120)
+            continue
+        }
+
+        Write-Host $texto
+        Write-Host "`n-----------------------------------------" -ForegroundColor Red
+        Write-Host " PAROU AQUI: $Oque" -ForegroundColor Red
+        if ($texto -match $transitorio) {
+            Write-Host " O Azure devolveu erro transitorio $Tentativas vezes seguidas." -ForegroundColor Red
+            Write-Host " Isso costuma passar sozinho: espere alguns minutos e rode de novo." -ForegroundColor Red
+            Write-Host " O script e idempotente  -  ele pula tudo que ja existe." -ForegroundColor Red
+        } else {
+            Write-Host " O erro do Azure CLI esta logo acima." -ForegroundColor Red
+            Write-Host " Nada mais foi executado  -  corrija e rode de novo." -ForegroundColor Red
+        }
+        Write-Host "-----------------------------------------`n" -ForegroundColor Red
+        exit 1
+    }
+}
+
 function Confirmar {
     <#  Roda um `show` e ABORTA se o recurso nao existir de verdade.
 
@@ -173,20 +226,6 @@ if (-not $assinatura) {
     exit 1
 }
 Write-Host "Assinatura: $assinatura"
-
-# --------------------------------------------------------------------------
-# QUEM SOU EU - e por que isso decide o nome do grupo de recursos
-# --------------------------------------------------------------------------
-# Numa turma rodando ao mesmo tempo, o que colide NAO sao os nomes globais
-# (ACR e Key Vault ja levam sufixo aleatorio). O que colide e o GRUPO DE
-# RECURSOS: com o mesmo nome para todo mundo, o `az group create` do segundo
-# aluno nao falha - ele so passa a apontar para o grupo do primeiro. Dali em
-# diante os dois compartilham ACR, Key Vault e Container App, e um sobrescreve
-# o outro sem nenhum erro na tela.
-#
-# A saida e um sufixo POR ALUNO. Aleatorio nao serve: precisa ser estavel
-# entre execucoes, senao cada `deploy.ps1` cria um grupo novo. Por isso ele sai
-# da identidade de quem rodou - mesma pessoa, mesmo nome, sempre.
 
 if (-not $Responsavel -or -not $Sufixo) {
     $upn = az ad signed-in-user show --query userPrincipalName -o tsv 2>$null
@@ -528,14 +567,31 @@ if ($appExiste) {
 }
 
 Write-Host "`n=== 8. Managed Identity ===" -ForegroundColor Cyan
-Passo "atribuir a identidade gerenciada" {
+# O app pode ter nascido HA POUCOS SEGUNDOS. Pedir identidade a um recurso que
+# o plano de controle ainda esta registrando devolve InternalServerError. Uma
+# pausa curta aqui evita a maioria das tentativas perdidas; o `Tentar` cobre o
+# resto.
+if (-not $appExiste) { Start-Sleep -Seconds 15 }
+
+Tentar "atribuir a identidade gerenciada" {
     az containerapp identity assign --name $app --resource-group $ResourceGroup `
         --system-assigned --only-show-errors | Out-Null
 }
-$principalId = az containerapp show --name $app --resource-group $ResourceGroup `
-    --query identity.principalId -o tsv
+
+# A identidade tambem demora a APARECER na leitura, mesmo depois do comando
+# voltar 0. Por isso perguntamos algumas vezes antes de desistir.
+$principalId = $null
+foreach ($tentativa in 1..6) {
+    $principalId = Confirmar "identidade do app" {
+        az containerapp show --name $app --resource-group $ResourceGroup `
+            --query identity.principalId -o tsv 2>$null
+    }
+    if ($principalId) { break }
+    Start-Sleep -Seconds 10
+}
 if (-not $principalId) {
     Write-Host "O app ficou sem identidade  -  sem ela nada adiante funciona." -ForegroundColor Red
+    Write-Host "Espere um minuto e rode o script de novo: ele pula tudo que ja existe." -ForegroundColor Red
     exit 1
 }
 Write-Host "Identidade do app: $principalId"
@@ -544,19 +600,19 @@ Write-Host "`n=== 9. Permissoes da identidade ===" -ForegroundColor Cyan
 $acrId = az acr show --name $acr --resource-group $ResourceGroup --query id -o tsv
 
 # Puxar a imagem do registry
-Passo "dar AcrPull a identidade" {
+Tentar "dar AcrPull a identidade" {
     az role assignment create --role "AcrPull" `
         --assignee-object-id $principalId --assignee-principal-type ServicePrincipal `
         --scope $acrId --only-show-errors | Out-Null
 }
 # Ler o segredo no Key Vault
-Passo "dar Key Vault Secrets User a identidade" {
+Tentar "dar Key Vault Secrets User a identidade" {
     az role assignment create --role "Key Vault Secrets User" `
         --assignee-object-id $principalId --assignee-principal-type ServicePrincipal `
         --scope $kvId --only-show-errors | Out-Null
 }
 # Chamar o modelo no Foundry — esta é a que substitui a chave
-Passo "dar Cognitive Services OpenAI User a identidade" {
+Tentar "dar Cognitive Services OpenAI User a identidade" {
     az role assignment create --role "Cognitive Services OpenAI User" `
         --assignee-object-id $principalId --assignee-principal-type ServicePrincipal `
         --scope $foundryId --only-show-errors | Out-Null
@@ -566,13 +622,13 @@ Write-Host "Aguardando as permissoes propagarem..." -ForegroundColor DarkGray
 Start-Sleep -Seconds 45
 
 Write-Host "`n=== 10. Registry via identidade ===" -ForegroundColor Cyan
-Passo "apontar o registry pela identidade" {
+Tentar "apontar o registry pela identidade" {
     az containerapp registry set --name $app --resource-group $ResourceGroup `
         --server "$acr.azurecr.io" --identity system --only-show-errors | Out-Null
 }
 
 Write-Host "`n=== 11. Segredo do Key Vault + variaveis de ambiente ===" -ForegroundColor Cyan
-Passo "referenciar o segredo do Key Vault" {
+Tentar "referenciar o segredo do Key Vault" {
     az containerapp secret set --name $app --resource-group $ResourceGroup `
         --secrets "foundry-key=keyvaultref:$segredoUri,identityref:system" --only-show-errors | Out-Null
 }
@@ -581,7 +637,7 @@ $endpointFoundry = az cognitiveservices account show `
     --name $FoundryResourceName --resource-group $FoundryResourceGroup `
     --query properties.endpoint -o tsv
 
-Passo "publicar a nossa imagem e as variaveis" {
+Tentar "publicar a nossa imagem e as variaveis" {
     az containerapp update --name $app --resource-group $ResourceGroup `
         --image "$acr.azurecr.io/$imagem" `
         --set-env-vars `
