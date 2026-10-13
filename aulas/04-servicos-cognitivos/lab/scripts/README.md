@@ -2,37 +2,22 @@
 
 | Script | Quando usar |
 |--------|-------------|
-| [gerar_audio_tts.py](gerar_audio_tts.py) | **Fallback do L₂** se você não conseguir baixar um podcast público para testar `/transcrever`. Gera um áudio sintético em PT-BR usando o **mesmo recurso AI Services** do lab (TTS e STT moram juntos). |
+| [semear_reviews.py](semear_reviews.py) | **Lab 1** — insere 10 reviews no MongoDB da EC2 (tem uma falha de segurança de propósito: ache e conserte) |
+| [gerar_audio_tts.py](gerar_audio_tts.py) | **Lab 2** — gera `/tmp/audio-teste.mp3` com o Amazon Polly (voz Camila) para testar a rota `/transcrever` |
 
-## Como usar
-
-Pré-requisito: Terraform da Aula 4 já aplicado, e `KEY_VAULT_NAME` + `AI_ENDPOINT` exportados:
-
-```bash
-cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform
-export AI_ENDPOINT=$(terraform output -raw ai_endpoint)
-export KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
-```
-
-Rodar:
+## Como usar (AWS CloudShell)
 
 ```bash
-pip install --user azure-cognitiveservices-speech azure-identity azure-keyvault-secrets
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab
+source exportar-outputs.sh            # MONGO_IP, DATA_BUCKET, FUNC_URL...
 
-cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/scripts
-python3 gerar_audio_tts.py
-# Saída em ~/qc-aula04/audio-teste.wav
+pip install --user boto3 pymongo -q
+
+python3 scripts/semear_reviews.py
+python3 scripts/gerar_audio_tts.py
+aws s3 cp /tmp/audio-teste.mp3 s3://$DATA_BUCKET/audios/audio-teste.mp3
 ```
 
-Depois, suba o arquivo para o container `audios` do Storage da Aula 2:
+Depois teste: `curl -X POST "${FUNC_URL}transcrever?arquivo=audio-teste.mp3"`.
 
-```bash
-az storage blob upload \
-  --account-name "$STORAGE_AULA2" \
-  --container-name audios \
-  --name audio-teste.wav \
-  --file ~/qc-aula04/audio-teste.wav \
-  --auth-mode login --overwrite
-```
-
-E teste a rota `/transcrever?blob=audio-teste.wav`.
+> Nenhum dos dois scripts usa chave de API: o boto3 pega a credencial da sessão do CloudShell (LabRole). O `semear_reviews.py`, porém, tem a **senha do MongoDB no código** — é o exercício.

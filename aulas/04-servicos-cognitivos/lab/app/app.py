@@ -1,11 +1,11 @@
 """
 QC Cognitive Studio — front-end da Aula 4.
 
-Explora os quatro serviços cognitivos do lab (TTS, STT, Visão e localização
-espacial) por DOIS caminhos diferentes, lado a lado:
+Explora os serviços de IA do lab (Polly, Transcribe e Rekognition) por DOIS
+caminhos diferentes, lado a lado:
 
-  A) via Function App  — o app só fala HTTP; quem tem identidade é a Function
-  B) direto no AI Services — o app carrega a chave e chama a Azure ele mesmo
+  A) via Lambda  — o app só fala HTTP; quem tem identidade é a função (LabRole)
+  B) direto na AWS — o app carrega credenciais e chama os serviços ele mesmo
 
 A comparação é o ponto da atividade. Os dois devolvem o mesmo resultado; o que
 muda é onde a credencial vive e quem pode usá-la.
@@ -17,8 +17,11 @@ Rodar:
 import io
 import json
 import time
+import uuid
+import urllib.request
 import wave
 
+import boto3
 import numpy as np
 import requests
 import streamlit as st
@@ -26,10 +29,13 @@ from PIL import Image, ImageDraw, ImageFont
 
 st.set_page_config(page_title="QC Cognitive Studio", page_icon="🧠", layout="wide")
 
+# Vozes neurais do Amazon Polly (cada voz já tem o seu idioma)
 VOZES = {
-    "Antônio (masculina)": "pt-BR-AntonioNeural",
-    "Francisca (feminina)": "pt-BR-FranciscaNeural",
-    "Thalita (feminina)": "pt-BR-ThalitaNeural",
+    "Camila (feminina, pt-BR)": "Camila",
+    "Vitória (feminina, pt-BR)": "Vitoria",
+    "Thiago (masculino, pt-BR)": "Thiago",
+    "Joanna (feminina, en-US)": "Joanna",
+    "Lucia (feminina, es-ES)": "Lucia",
 }
 
 IDIOMAS = {"Português (BR)": "pt-BR", "Inglês (US)": "en-US", "Espanhol (ES)": "es-ES"}
@@ -43,42 +49,55 @@ CORES = ["#E8175D", "#3DD68C", "#4A90D9", "#E8B04B", "#A78BFA", "#38BDF8"]
 st.sidebar.title("⚙️ Configuração")
 
 st.sidebar.caption(
-    "Pegue estes valores rodando `source exportar-outputs.sh` no Cloud Shell."
+    "Pegue estes valores rodando `source exportar-outputs.sh` no CloudShell."
 )
 
-func_host = st.sidebar.text_input(
-    "Function App (FUNC_HOSTNAME)",
-    placeholder="https://func-qc-aula04-xxxxx.azurewebsites.net",
-    help="Sem barra no final.",
+func_url = st.sidebar.text_input(
+    "Function URL da Lambda (FUNC_URL)",
+    placeholder="https://xxxxxxxx.lambda-url.us-east-1.on.aws/",
 ).rstrip("/")
 
 st.sidebar.divider()
-st.sidebar.caption("Só para o caminho **direto** — o caminho via Function não usa.")
-
-ai_endpoint = st.sidebar.text_input(
-    "AI_ENDPOINT",
-    placeholder="https://ai-qc-xxxxx.cognitiveservices.azure.com/",
-).rstrip("/")
-ai_region = st.sidebar.text_input("AI_REGION", value="eastus2")
-ai_key = st.sidebar.text_input("AI_KEY", type="password")
+st.sidebar.caption(
+    "Só para o caminho **direto** — o caminho via Lambda não usa. "
+    "Learner Lab → **AWS Details** → **AWS CLI: Show**."
+)
+aws_key_id = st.sidebar.text_input("aws_access_key_id")
+aws_secret = st.sidebar.text_input("aws_secret_access_key", type="password")
+aws_token = st.sidebar.text_input("aws_session_token", type="password")
+aws_region = st.sidebar.text_input("Região", value="us-east-1")
+data_bucket = st.sidebar.text_input(
+    "DATA_BUCKET", help="O Transcribe só lê áudio do S3: o caminho direto precisa do bucket."
+)
 
 st.sidebar.divider()
 caminho = st.sidebar.radio(
     "Caminho",
-    ["Via Function App", "Direto no AI Services", "Comparar os dois"],
+    ["Via Lambda", "Direto na AWS", "Comparar os dois"],
     help="'Comparar' executa os dois e mostra tempo e resultado lado a lado.",
 )
 
 
-def precisa(via_function: bool) -> bool:
+def precisa(via_lambda: bool) -> bool:
     """Confere se a configuração necessária para aquele caminho está preenchida."""
-    if via_function and not func_host:
-        st.error("Preencha **Function App** na barra lateral.")
+    if via_lambda and not func_url:
+        st.error("Preencha a **Function URL** na barra lateral.")
         return False
-    if not via_function and not (ai_endpoint and ai_key):
-        st.error("Preencha **AI_ENDPOINT** e **AI_KEY** na barra lateral.")
+    if not via_lambda and not (aws_key_id and aws_secret):
+        st.error("Preencha as credenciais da AWS na barra lateral.")
         return False
     return True
+
+
+def cliente(servico: str):
+    """Cliente boto3 com as credenciais coladas na barra lateral — a 'chave no cliente'."""
+    return boto3.client(
+        servico,
+        region_name=aws_region,
+        aws_access_key_id=aws_key_id,
+        aws_secret_access_key=aws_secret,
+        aws_session_token=aws_token or None,
+    )
 
 
 def cronometrar(fn, *args, **kwargs):
@@ -97,13 +116,11 @@ def cronometrar(fn, *args, **kwargs):
 
 def preparar_wav(audio: bytes, destino_hz: int = 16000) -> tuple[bytes, str]:
     """
-    Converte o áudio para WAV PCM 16-bit MONO a 16 kHz — o único formato que o
-    endpoint REST do Speech aceita.
+    Converte o áudio para WAV PCM 16-bit MONO a 16 kHz.
 
-    Por que isto existe: a gravação do navegador sai em 48 kHz (e às vezes
-    estéreo). Mandar 48 kHz declarando `samplerate=16000` no cabeçalho faz o
-    Azure recusar, e o erro chega como 500 genérico, sem dizer que o problema é
-    o formato. Cinco segundos de fala a 48 kHz dão ~490 KB; a 16 kHz mono, ~160.
+    O Transcribe aceita 48 kHz, mas o arquivo fica 3× maior para nada: fala não
+    precisa de mais que 16 kHz. Cinco segundos de fala a 48 kHz dão ~490 KB; a
+    16 kHz mono, ~160. Menos bytes = upload mais rápido para o S3.
 
     Devolve (bytes_convertidos, descricao_do_que_foi_feito).
     """
@@ -146,82 +163,67 @@ def preparar_wav(audio: bytes, destino_hz: int = 16000) -> tuple[bytes, str]:
     return saida.getvalue(), f"convertido de {taxa} Hz / {canais} canal(is) → 16 kHz mono"
 
 
-def _speech_token() -> str:
-    """Troca a chave por um token de 10 min. Só no caminho direto."""
-    r = requests.post(
-        f"https://{ai_region}.api.cognitive.microsoft.com/sts/v1.0/issueToken",
-        headers={"Ocp-Apim-Subscription-Key": ai_key, "Content-Length": "0"},
-        timeout=10,
-    )
-    r.raise_for_status()
-    return r.text
-
-
-def tts_function(texto: str, voz: str, idioma: str) -> bytes:
-    r = requests.post(
-        f"{func_host}/api/tts",
-        json={"texto": texto, "voz": voz, "idioma": idioma},
-        timeout=60,
-    )
+def tts_lambda(texto: str, voz: str) -> bytes:
+    r = requests.post(f"{func_url}/tts", json={"texto": texto, "voz": voz}, timeout=60)
     r.raise_for_status()
     return r.content
 
 
-def tts_direto(texto: str, voz: str, idioma: str) -> bytes:
-    seguro = texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    ssml = (
-        f"<speak version='1.0' xml:lang='{idioma}'>"
-        f"<voice xml:lang='{idioma}' name='{voz}'>{seguro}</voice></speak>"
-    )
-    r = requests.post(
-        f"https://{ai_region}.tts.speech.microsoft.com/cognitiveservices/v1",
-        headers={
-            "Authorization": f"Bearer {_speech_token()}",
-            "Content-Type": "application/ssml+xml",
-            "X-Microsoft-OutputFormat": "riff-16khz-16bit-mono-pcm",
-            "User-Agent": "qc-studio",
-        },
-        data=ssml.encode("utf-8"),
-        timeout=60,
-    )
-    r.raise_for_status()
-    return r.content
+def tts_direto(texto: str, voz: str) -> bytes:
+    pcm = cliente("polly").synthesize_speech(
+        Text=texto, VoiceId=voz, Engine="neural", OutputFormat="pcm", SampleRate="16000"
+    )["AudioStream"].read()
+    saida = io.BytesIO()
+    with wave.open(saida, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm)
+    return saida.getvalue()
 
 
-def stt_function(audio: bytes, idioma: str) -> dict:
+def stt_lambda(audio: bytes, idioma: str) -> dict:
     r = requests.post(
-        f"{func_host}/api/stt",
-        params={"idioma": idioma},
+        f"{func_url}/stt",
+        params={"idioma": idioma, "formato": "wav"},
         data=audio,
         headers={"Content-Type": "application/octet-stream"},
-        timeout=60,
+        timeout=70,
     )
     r.raise_for_status()
     return r.json()
 
 
 def stt_direto(audio: bytes, idioma: str) -> dict:
-    r = requests.post(
-        f"https://{ai_region}.stt.speech.microsoft.com"
-        "/speech/recognition/conversation/cognitiveservices/v1",
-        headers={
-            "Authorization": f"Bearer {_speech_token()}",
-            "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
-            "Accept": "application/json",
-        },
-        params={"language": idioma, "format": "detailed"},
-        data=audio,
-        timeout=60,
-    )
-    r.raise_for_status()
-    d = r.json()
-    texto = d["NBest"][0]["Display"] if d.get("NBest") else d.get("DisplayText", "")
-    return {"transcricao": texto, "status_stt": d.get("RecognitionStatus", "")}
+    if not data_bucket:
+        raise ValueError("Preencha DATA_BUCKET: o Transcribe só lê áudio do S3.")
+    s3, transcribe = cliente("s3"), cliente("transcribe")
+    chave = f"audios/studio-{uuid.uuid4().hex[:8]}.wav"
+    job = f"qc-studio-{uuid.uuid4().hex[:8]}"
+    s3.put_object(Bucket=data_bucket, Key=chave, Body=audio)
+    try:
+        transcribe.start_transcription_job(
+            TranscriptionJobName=job, LanguageCode=idioma, MediaFormat="wav",
+            Media={"MediaFileUri": f"s3://{data_bucket}/{chave}"},
+        )
+        while True:
+            st_job = transcribe.get_transcription_job(TranscriptionJobName=job)["TranscriptionJob"]
+            if st_job["TranscriptionJobStatus"] in ("COMPLETED", "FAILED"):
+                break
+            time.sleep(2)
+        if st_job["TranscriptionJobStatus"] == "FAILED":
+            return {"transcricao": "", "status": "FAILED", "motivo": st_job.get("FailureReason")}
+        with urllib.request.urlopen(st_job["Transcript"]["TranscriptFileUri"], timeout=10) as r:
+            dados = json.load(r)
+        texto = " ".join(t["transcript"] for t in dados["results"]["transcripts"])
+        return {"transcricao": texto, "status": "COMPLETED"}
+    finally:
+        s3.delete_object(Bucket=data_bucket, Key=chave)
 
 
-def visao_function(imagem: bytes) -> dict:
+def visao_lambda(imagem: bytes) -> dict:
     r = requests.post(
-        f"{func_host}/api/visao",
+        f"{func_url}/visao",
         data=imagem,
         headers={"Content-Type": "application/octet-stream"},
         timeout=60,
@@ -231,43 +233,27 @@ def visao_function(imagem: bytes) -> dict:
 
 
 def visao_direto(imagem: bytes) -> dict:
-    r = requests.post(
-        f"{ai_endpoint}/computervision/imageanalysis:analyze",
-        params={"api-version": "2024-02-01", "features": "tags,read,objects"},
-        headers={
-            "Ocp-Apim-Subscription-Key": ai_key,
-            "Content-Type": "application/octet-stream",
-        },
-        data=imagem,
-        timeout=60,
-    )
-    r.raise_for_status()
-    d = r.json()
+    rek = cliente("rekognition")
+    labels = rek.detect_labels(Image={"Bytes": imagem}, MaxLabels=15, MinConfidence=60)["Labels"]
+    textos = rek.detect_text(Image={"Bytes": imagem})["TextDetections"]
+    largura, altura = Image.open(io.BytesIO(imagem)).size
 
-    tags = [
-        {"name": t["name"], "confidence": round(t["confidence"], 3)}
-        for t in d.get("tagsResult", {}).get("values", [])
-    ]
-    texto = "\n".join(
-        line["text"]
-        for block in d.get("readResult", {}).get("blocks", [])
-        for line in block.get("lines", [])
-    )
     objetos = []
-    for o in d.get("objectsResult", {}).get("values", []):
-        b = o["boundingBox"]
-        t0 = (o.get("tags") or [{}])[0]
-        objetos.append({
-            "label": t0.get("name", "objeto"),
-            "confidence": round(t0["confidence"], 3) if "confidence" in t0 else None,
-            "box": {"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"]},
-        })
+    for lab in labels:
+        for inst in lab.get("Instances", []):
+            b = inst["BoundingBox"]  # proporção 0–1 → pixels
+            objetos.append({
+                "label": lab["Name"],
+                "confidence": round(inst["Confidence"] / 100, 3),
+                "box": {"x": round(b["Left"] * largura), "y": round(b["Top"] * altura),
+                        "w": round(b["Width"] * largura), "h": round(b["Height"] * altura)},
+            })
     return {
-        "tags": tags[:15],
-        "texto": texto,
+        "tags": [{"name": lab["Name"], "confidence": round(lab["Confidence"] / 100, 3)} for lab in labels],
+        "texto": "\n".join(t["DetectedText"] for t in textos if t["Type"] == "LINE"),
         "objetos": objetos,
-        "largura": d.get("metadata", {}).get("width"),
-        "altura": d.get("metadata", {}).get("height"),
+        "largura": largura,
+        "altura": altura,
     }
 
 
@@ -331,46 +317,44 @@ aba_tts, aba_stt, aba_visao, aba_arq = st.tabs(
 
 # ---------------------------------------------------------------------- TTS
 with aba_tts:
-    st.subheader("Texto → Fala (Speech TTS)")
+    st.subheader("Texto → Fala (Amazon Polly)")
 
     texto = st.text_area(
         "Texto para sintetizar",
         "A Quantum Commerce é uma plataforma de e-commerce que opera em doze países.",
         height=110,
     )
-    c1, c2 = st.columns(2)
-    voz = VOZES[c1.selectbox("Voz", list(VOZES))]
-    idioma_tts = IDIOMAS[c2.selectbox("Idioma", list(IDIOMAS), key="idioma_tts")]
+    voz = VOZES[st.selectbox("Voz", list(VOZES))]
 
     if st.button("Sintetizar", type="primary", key="btn_tts"):
-        if caminho in ("Via Function App", "Comparar os dois") and precisa(True):
-            audio, erro, t = cronometrar(tts_function, texto, voz, idioma_tts)
-            st.markdown("#### Via Function App")
+        if caminho in ("Via Lambda", "Comparar os dois") and precisa(True):
+            audio, erro, t = cronometrar(tts_lambda, texto, voz)
+            st.markdown("#### Via Lambda")
             if erro:
                 st.error(erro)
             else:
-                painel_tempo("Function", t, "nenhuma no cliente")
+                painel_tempo("Lambda", t, "nenhuma no cliente")
                 st.audio(audio, format="audio/wav")
-                st.download_button("Baixar WAV", audio, "tts-function.wav", "audio/wav")
+                st.download_button("Baixar WAV", audio, "tts-lambda.wav", "audio/wav")
 
-        if caminho in ("Direto no AI Services", "Comparar os dois") and precisa(False):
-            audio, erro, t = cronometrar(tts_direto, texto, voz, idioma_tts)
-            st.markdown("#### Direto no AI Services")
+        if caminho in ("Direto na AWS", "Comparar os dois") and precisa(False):
+            audio, erro, t = cronometrar(tts_direto, texto, voz)
+            st.markdown("#### Direto na AWS")
             if erro:
                 st.error(erro)
             else:
-                painel_tempo("Direto", t, "AI_KEY no cliente")
+                painel_tempo("Direto", t, "access key no cliente")
                 st.audio(audio, format="audio/wav")
                 st.download_button("Baixar WAV", audio, "tts-direto.wav", "audio/wav")
 
 # ---------------------------------------------------------------------- STT
 with aba_stt:
-    st.subheader("Fala → Texto (Speech STT)")
+    st.subheader("Fala → Texto (Amazon Transcribe)")
 
     st.info(
-        "O Speech REST aceita **WAV PCM 16 kHz mono**. A gravação do navegador sai "
-        "em 48 kHz — o app converte automaticamente antes de enviar, e mostra "
-        "abaixo o que foi feito.",
+        "A gravação do navegador sai em 48 kHz. O app converte para **WAV 16 kHz mono** "
+        "antes de enviar (3× menos bytes, mesma qualidade para fala) e mostra abaixo "
+        "o que foi feito. O Transcribe processa em lote: espere alguns segundos.",
         icon="🎚️",
     )
 
@@ -400,23 +384,23 @@ with aba_stt:
 
     if st.button("Transcrever", type="primary", key="btn_stt", disabled=not audio_envio):
         audio_bytes = audio_envio
-        if caminho in ("Via Function App", "Comparar os dois") and precisa(True):
-            r, erro, t = cronometrar(stt_function, audio_bytes, idioma_stt)
-            st.markdown("#### Via Function App")
+        if caminho in ("Via Lambda", "Comparar os dois") and precisa(True):
+            r, erro, t = cronometrar(stt_lambda, audio_bytes, idioma_stt)
+            st.markdown("#### Via Lambda")
             if erro:
                 st.error(erro)
             else:
-                painel_tempo("Function", t, "nenhuma no cliente")
+                painel_tempo("Lambda", t, "nenhuma no cliente")
                 st.success(r.get("transcricao") or "_(transcrição vazia)_")
                 st.caption(f"status: {r.get('status_stt')}")
 
-        if caminho in ("Direto no AI Services", "Comparar os dois") and precisa(False):
+        if caminho in ("Direto na AWS", "Comparar os dois") and precisa(False):
             r, erro, t = cronometrar(stt_direto, audio_bytes, idioma_stt)
-            st.markdown("#### Direto no AI Services")
+            st.markdown("#### Direto na AWS")
             if erro:
                 st.error(erro)
             else:
-                painel_tempo("Direto", t, "AI_KEY no cliente")
+                painel_tempo("Direto", t, "access key no cliente")
                 st.success(r.get("transcricao") or "_(transcrição vazia)_")
                 st.caption(f"status: {r.get('status_stt')}")
 
@@ -430,12 +414,12 @@ with aba_visao:
         imagem = arquivo.getvalue()
 
         resultados = []
-        if caminho in ("Via Function App", "Comparar os dois") and precisa(True):
-            r, erro, t = cronometrar(visao_function, imagem)
-            resultados.append(("Via Function App", r, erro, t, "nenhuma no cliente"))
-        if caminho in ("Direto no AI Services", "Comparar os dois") and precisa(False):
+        if caminho in ("Via Lambda", "Comparar os dois") and precisa(True):
+            r, erro, t = cronometrar(visao_lambda, imagem)
+            resultados.append(("Via Lambda", r, erro, t, "nenhuma no cliente"))
+        if caminho in ("Direto na AWS", "Comparar os dois") and precisa(False):
             r, erro, t = cronometrar(visao_direto, imagem)
-            resultados.append(("Direto no AI Services", r, erro, t, "AI_KEY no cliente"))
+            resultados.append(("Direto na AWS", r, erro, t, "access key no cliente"))
 
         for titulo, r, erro, t, cred in resultados:
             st.markdown(f"#### {titulo}")
@@ -491,35 +475,35 @@ with aba_arq:
 Os dois devolvem **o mesmo resultado**. A diferença não está na saída, está em
 onde a credencial vive — e isso decide o que acontece quando algo vaza.
 
-| | Via Function App | Direto no AI Services |
+| | Via Lambda | Direto na AWS |
 |---|---|---|
-| Onde está a chave | Key Vault; a Function resolve em runtime | **nesta máquina**, na barra lateral |
-| Quem se autentica | a Managed Identity da Function | você, com a chave |
-| Se o código vazar | nada de útil: só a URL da Function | a chave vai junto |
-| Revogar acesso | tirar a role da identidade | rotacionar a chave e avisar todo mundo |
-| Auditoria | log identifica **qual** identidade chamou | só "alguém com a chave" |
+| Onde está a credencial | na execution role da Lambda (temporária, renovada sozinha) | **nesta máquina**, na barra lateral |
+| Quem se autentica | a função, com a LabRole | você, com a access key |
+| Se o código vazar | nada de útil: só a URL da função | a credencial vai junto |
+| Revogar acesso | mudar a política da role | desativar a access key e avisar todo mundo |
+| Auditoria (CloudTrail) | registra a role da função | registra a sua chave, não quem estava usando |
 | Latência | um salto a mais | um salto a menos |
 
 O caminho direto é mais rápido — e é exatamente por isso que ele é tentador.
 Compare os tempos nas abas: a diferença costuma ser de dezenas de milissegundos.
-É esse o preço de não ter a chave na máquina do cliente.
+É esse o preço de não ter credencial na máquina do cliente.
 
 **Perguntas para discussão**
 
 1. Este app roda no seu notebook. Se ele virasse uma página web pública, o
-   caminho direto continuaria possível? O que aconteceria com a chave?
-2. A Function usa Managed Identity para Vision e chave para Speech. Por que a
-   diferença? (dica: `Cognitive Services Speech User`)
-3. Se um aluno commitar este projeto no GitHub com a chave preenchida, o que
-   precisa ser feito? Basta remover o arquivo?
+   caminho direto continuaria possível? O que aconteceria com a access key?
+2. As credenciais do Learner Lab expiram em ~4 h. Isso é defeito ou proteção?
+   Compare com uma access key de usuário IAM, que não expira.
+3. Se um aluno commitar este projeto no GitHub com a credencial preenchida, o que
+   precisa ser feito? Basta apagar o arquivo?
         """
     )
 
-    if func_host:
+    if func_url:
         st.divider()
-        if st.button("Testar /api/health"):
+        if st.button("Testar /health"):
             try:
-                r = requests.get(f"{func_host}/api/health", timeout=20)
+                r = requests.get(f"{func_url}/health", timeout=20)
                 st.json(r.json())
             except Exception as e:  # noqa: BLE001
                 st.error(str(e))

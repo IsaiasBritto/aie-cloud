@@ -65,3 +65,6 @@ tmp/
 
 # Pacotes gerados pelo Terraform (archive_file)
 .build/
+
+# Pacote da Lambda montado no lab (pip install -t pacote)
+aulas/04-servicos-cognitivos/lab/function/pacote/

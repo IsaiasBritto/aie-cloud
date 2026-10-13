@@ -1,59 +1,42 @@
-# Function code — Aula 4
+# Código da Lambda — Aula 4
 
-API HTTP da QC com **4 rotas cognitivas**, autenticadas por Managed Identity:
+API HTTP da QC com as **rotas de IA**, servida por uma Function URL. Roteamento com o **Powertools for AWS Lambda** (`LambdaFunctionUrlResolver`).
 
-| Rota | Atividade do lab | Capacidade |
-|------|-------------------|------------|
-| `GET /api/health` | — | Status + lista de rotas |
-| `GET /api/transcrever?blob=...&container=audios&idioma=pt-BR` | L₂ | Speech-to-Text |
-| `POST /api/analisar-reviews?limit=10` | L₃ | Language: sentimento + entidades das reviews do Cosmos |
-| `GET /api/analisar-imagem?blob=...&container=imagens` | L₄ | Vision: tags + OCR + caption |
+| Rota | Atividade | Serviço |
+|------|-----------|---------|
+| `GET /health` | — | Status + lista de rotas |
+| `POST /transcrever?arquivo=...&idioma=pt-BR` | L₂ | Amazon Transcribe (áudio em `audios/` do bucket) |
+| `POST /analisar-reviews?limit=10` | L₃ | Amazon Comprehend (sentimento + entidades) + MongoDB |
+| `GET /analisar-imagem?arquivo=...` | L₄ | Amazon Rekognition (imagem em `imagens/`) |
+| `POST /tts` | L₅ (app) | Amazon Polly — JSON `{texto, voz}` → WAV |
+| `POST /stt?idioma=` | L₅ (app) | Transcribe — corpo = bytes do áudio |
+| `POST /visao` | L₅ (app) | Rekognition — corpo = bytes da imagem |
 
-## Pré-requisitos
+## Credenciais
 
-- Terraform da Aula 4 aplicado (Function App provisionada, AI Services com custom subdomain, 3 roles concedidas).
-- Áudio no container `audios` do Storage da Aula 2 (ver guia da Aula 4, Atividade 2).
-- Reviews populadas no Cosmos da Aula 2 (ver Atividade 3 da Aula 2).
-- Imagem no container `imagens` do Storage da Aula 2 (ver guia da Aula 4, Atividade 4).
+Nenhuma no código. A função usa a **execution role** (LabRole) para S3, Transcribe, Polly, Comprehend e Rekognition, e lê a URI do MongoDB do **Secrets Manager** (`MONGO_SECRET_ID`).
 
-## Deploy
+## Deploy (AWS CloudShell)
 
 ```bash
-FUNC_NAME=$(cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform && terraform output -raw function_app_name)
-
-cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/function
-func azure functionapp publish "$FUNC_NAME" --python
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab && source exportar-outputs.sh
+cd function
+rm -rf pacote && mkdir pacote
+pip install -r requirements.txt -t pacote -q \
+  --platform manylinux2014_x86_64 --python-version 3.12 --only-binary=:all:
+cp function_app.py pacote/
+(cd pacote && zip -qr /tmp/function.zip .)
+aws lambda update-function-code --function-name "$FUNC_NAME" --zip-file fileb:///tmp/function.zip
+aws lambda wait function-updated --function-name "$FUNC_NAME"
 ```
 
-Tempo: ~2-3 min (mais pacotes que a Aula 3 — Speech SDK e Vision SDK pesam).
+> **Por que os flags no `pip`?** O CloudShell roda outro Python (3.9). Sem `--platform`/`--python-version`, um pacote com parte compilada (o `pymongo`) viria montado para o Python errado.
 
 ## Testar
 
 ```bash
-HOSTNAME=$(cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform && terraform output -raw function_app_hostname)
-
-# Aguardar Managed Identity propagar
-sleep 90
-
-# Health
-curl -s "$HOSTNAME/api/health" | python3 -m json.tool
-
-# Transcrever áudio
-curl -s "$HOSTNAME/api/transcrever?blob=bbc-trecho.mp3" | python3 -m json.tool
-
-# Analisar reviews do Cosmos
-curl -s -X POST "$HOSTNAME/api/analisar-reviews?limit=10" | python3 -m json.tool
-
-# Analisar imagem
-curl -s "$HOSTNAME/api/analisar-imagem?blob=cadeira-produto.jpg" | python3 -m json.tool
+curl -s "${FUNC_URL}health" | python3 -m json.tool
+curl -s -X POST "${FUNC_URL}transcrever?arquivo=audio-teste.mp3" | python3 -m json.tool
+curl -s -X POST "${FUNC_URL}analisar-reviews?limit=10" | python3 -m json.tool
+curl -s "${FUNC_URL}analisar-imagem?arquivo=produto.jpg" | python3 -m json.tool
 ```
-
-## Lição central
-
-Olhe o código — não há **nenhuma chave, token ou connection string**. A Function:
-
-- Lê Blob via `DefaultAzureCredential` (role Storage Blob Data Reader).
-- Chama AI Services via token AAD obtido pela MI (role Cognitive Services User + custom subdomain habilitado).
-- Lê/escreve no Cosmos via MI (role Cosmos DB Built-in Data Contributor).
-
-Este é o padrão de produção para componentes consumidos por agentes: **nenhum segredo no código, nenhum vazamento possível via repo**.

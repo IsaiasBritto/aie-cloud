@@ -1,29 +1,27 @@
 terraform {
+  required_version = ">= 1.5"
+
   required_providers {
-    azurerm = {
-      source = "hashicorp/azurerm"
-      # 4.x e obrigatorio: o lab usa azurerm_function_app_flex_consumption
-      # (plano FC1), que nao existe na 3.x. O plano Y1 antigo nao serve porque
-      # contas Azure for Students tem cota ZERO de Y1:
-      #   401 Unauthorized ... Current Limit (Y1 VMs): 0
-      version = "~> 4.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.12"
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
     }
   }
 }
 
-provider "azurerm" {
-  features {
-    key_vault {
-      purge_soft_delete_on_destroy = true
-    }
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = local.tags
   }
 }
 
@@ -34,27 +32,27 @@ resource "random_string" "sufixo" {
 }
 
 locals {
+  nome = "qc-aula04-${random_string.sufixo.result}"
   tags = {
     aula         = "4"
     disciplina   = "cloud-cognitive"
     projeto      = "quantum-commerce"
     provisionado = "terraform"
   }
+  # Credenciais do MongoDB do LAB. Ficam no Secrets Manager para a Lambda;
+  # o semear_reviews.py as tem no código DE PROPÓSITO (é o exercício de segurança).
   mongo_admin_pass   = "QCadmin2024!"
   mongo_express_pass = "QCview2024!"
-
-  # Prefixo das imagens do ACI. Vazio quando não há registry configurado — aí o
-  # ACI puxa do Docker Hub público, sujeito ao rate limit anônimo de 100 pulls
-  # por 6 h por IP (e o ACI sai por IPs compartilhados da região).
-  image_prefix = var.registry_server == null ? "" : "${var.registry_server}/"
 }
 
-# Resource Group da Aula 4
-resource "azurerm_resource_group" "rg" {
-  name     = "rg-qc-aula04-${random_string.sufixo.result}"
-  location = var.location
-  tags     = local.tags
+# No Learner Lab não se cria IAM role: a Lambda usa a LabRole
+data "aws_iam_role" "lab" {
+  name = "LabRole"
 }
 
-# Identidade do usuário autenticado (para RBAC no Key Vault)
-data "azurerm_client_config" "current" {}
+data "aws_vpc" "padrao" {
+  default = true
+}
+
+# Nada a criar para Transcribe, Polly, Comprehend e Rekognition:
+# são APIs da conta, liberadas por IAM (a LabRole já tem acesso).
