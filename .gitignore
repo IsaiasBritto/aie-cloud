@@ -62,3 +62,6 @@ desktop.ini
 *.log
 tmp/
 .tmp/
+
+# Pacotes gerados pelo Terraform (archive_file)
+.build/

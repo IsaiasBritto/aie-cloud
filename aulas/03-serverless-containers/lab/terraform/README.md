@@ -1,63 +1,49 @@
 # Terraform — Aula 3
 
-Código IaC para provisionar a **camada de compute** da Quantum Commerce:
-
-- Storage Account de catálogo **criado nesta aula** + upload automático do `produtos.csv`
-- Azure Function App em **Flex Consumption** (plano FC1, sucessor do Linux Consumption/Y1, com Managed Identity SystemAssigned)
-- Azure Container Registry (Basic SKU)
-- Managed Identity user-assigned para o ACI
-- Role assignments para ler blobs do Storage do catálogo (sem credenciais no código)
-- Azure Container Instances (habilitado via flag `aci_enabled` após push da imagem)
-
-> **Independente da Aula 2.** Não é preciso aplicar nada da Aula 2 nem passar
-> variáveis de storage — esta aula cria o próprio catálogo e sobe o CSV no apply.
-
-## Como usar (no Azure Cloud Shell)
-
-### Phase 1 — Provisionar tudo exceto ACI (~3 min)
-
-```bash
-cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform
-
-terraform init
-terraform apply -auto-approve
-# aci_enabled fica em false (default) → não cria ACI ainda
-```
-
-Provisiona: Resource Group + Storage de catálogo (com produtos.csv) + Function App + ACR + UAI + role assignments.
-
-### Phase 2 — Após importar a imagem no ACR, habilitar o ACI
-
-```bash
-# (depois do 'az acr import' da imagem produtos-api:v1 do GHCR — ver docker/README)
-terraform apply -auto-approve -var="aci_enabled=true"
-```
-
-### Destroy (regra de ouro — custo zero ao final)
-
-```bash
-terraform destroy -auto-approve -var="aci_enabled=true"
-```
-
-> Tudo é removido, inclusive o Storage do catálogo (ele é desta aula).
-
-## Arquivos
+Provisiona a **camada de compute** da Quantum Commerce na AWS:
 
 | Arquivo | O que define |
 |---------|--------------|
-| [main.tf](main.tf) | Providers (azurerm 4.x), RG, sufixo aleatório, locals, Flex Consumption Plan FC1 |
-| [storage.tf](storage.tf) | Storage da Function + Storage do catálogo + container + upload do produtos.csv |
-| [variables.tf](variables.tf) | `location`, `aci_enabled` |
-| [outputs.tf](outputs.tf) | `function_app_name`, `function_app_default_hostname`, `acr_login_server`, `acr_name`, `aci_fqdn`, `catalogo_storage_account_name` |
-| [function.tf](function.tf) | Function App + Managed Identity + role Blob Data Reader |
-| [containers.tf](containers.tf) | ACR + UAI + role + ACI (count condicional) |
+| [main.tf](main.tf) | Providers, sufixo aleatório, tags padrão, LabRole, VPC e subnets padrão |
+| [variables.tf](variables.tf) | `region`, `ecs_enabled` (para criar o ECS depois) e `image_tag` |
+| [outputs.tf](outputs.tf) | `lambda_name`, `function_url`, `ecr_repository_url`, `bucket_name`, cluster/serviço ECS |
+| [storage.tf](storage.tf) | Bucket S3 (prefixo `catalogo/`) + upload do `produtos.csv` |
+| [lambda.tf](lambda.tf) | Lambda Python 3.12 + Function URL + LabRole como execution role + log group com retenção |
+| [containers.tf](containers.tf) | ECR (com lifecycle) + cluster ECS + task definition + serviço Fargate (condicional) |
 
-## Outputs disponíveis
+> **Independente da Aula 2:** esta aula cria o próprio bucket e sobe o CSV no apply.
+
+## Como usar (AWS CloudShell, Learner Lab iniciado)
+
+### Fase 1 — Tudo, menos o serviço ECS (~2 min)
 
 ```bash
-terraform output -raw function_app_name
-terraform output -raw function_app_default_hostname
-terraform output -raw acr_login_server
-terraform output -raw acr_name
-terraform output -raw aci_fqdn   # só faz sentido com aci_enabled=true
+cd ~/aie-cloud/aulas/03-serverless-containers/lab/terraform
+export PATH="$HOME/bin:$PATH" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+terraform init
+terraform apply -auto-approve
+terraform output
 ```
+
+### Fase 2 — Depois do `docker push` da imagem (ver [docker/README.md](../docker/README.md))
+
+```bash
+terraform apply -auto-approve -var="ecs_enabled=true"
+TASK_IP=$(bash ../scripts/task_ip.sh)
+curl "http://$TASK_IP:8080/health"
+```
+
+### Encerramento
+
+```bash
+terraform destroy -auto-approve
+```
+
+Apaga Lambda, bucket, ECR (com as imagens) e o cluster ECS de uma vez.
+
+## Decisões de projeto
+
+- **LabRole em tudo:** o Learner Lab não deixa criar IAM roles. Em produção, cada componente teria a sua role, com só as permissões que usa.
+- **Function URL sem API Gateway:** o caminho mais curto para HTTPS. Desde out/2025, uma URL pública exige duas permissões na política da função (`InvokeFunctionUrl` e `InvokeFunction` com a condição `InvokedViaFunctionUrl`); a segunda é criada via CLI no `terraform_data`.
+- **`ignore_changes` no código da Lambda:** o Terraform publica a v1 só na criação; o deploy seguinte é do aluno (`update-function-code`), e um novo `apply` não desfaz.
+- **Logs com retenção de 7 dias:** log group sem retenção guarda para sempre — e cobra.
