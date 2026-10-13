@@ -1,69 +1,37 @@
-# Terraform — Aula 2
+# Terraform — Aula 2 (camada de dados da QC)
 
-Código IaC pronto para provisionar **toda a camada de dados** da Quantum Commerce:
+Provisiona, num único `apply`, a camada de dados da Quantum Commerce na AWS:
 
-- Storage Account + 3 containers (catálogo, imagens, logs) + lifecycle policy
-- Azure SQL Database (GP Serverless, auto-pause)
-- Key Vault com a connection string do SQL como segredo
-- Cosmos DB (Serverless)
-- Azure AI Search (SKU Free)
+| Arquivo | Recurso |
+|---------|---------|
+| [main.tf](main.tf) | Providers (aws, random, http), sufixo aleatório, `default_tags`, VPC padrão e IP do CloudShell |
+| [variables.tf](variables.tf) | `region`, `db_password` (obrigatória), senhas do MongoDB |
+| [storage.tf](storage.tf) | Bucket S3 privado e criptografado + prefixos `catalogo/`, `imagens/`, `logs/` + lifecycle dos logs |
+| [rds.tf](rds.tf) | RDS PostgreSQL 16 `db.t3.micro` (pgvector disponível) + security group só para o seu IP |
+| [secrets.tf](secrets.tf) | Secrets Manager: connection string do PostgreSQL e credenciais do MongoDB |
+| [dynamodb.tf](dynamodb.tf) | Tabela on-demand `reviews` (partição `produto_id`, ordenação `review_id`) |
+| [mongo.tf](mongo.tf) + [mongo-user-data.sh.tftpl](mongo-user-data.sh.tftpl) | EC2 Amazon Linux 2023 com Docker: MongoDB 7.0 + Mongo Express 1.0.2 (imagens do ECR Public) |
+| [outputs.tf](outputs.tf) | `bucket_name`, `secret_id`, `mongo_secret_id`, `dynamodb_table`, `db_endpoint`, `mongodb_public_ip`, `mongo_express_url` |
 
-## Como usar (no Azure Cloud Shell)
+## Como usar (AWS CloudShell, Learner Lab iniciado)
 
 ```bash
-# Ir para a pasta
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
+export PATH="$HOME/bin:$PATH" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 
-# Gerar uma senha forte para o admin do SQL (não use senha trivial)
-SQL_PASSWORD=$(openssl rand -base64 24)
-echo "Senha gerada (guarde em local seguro): $SQL_PASSWORD"
-
-# Inicializar providers
+export DB_PASSWORD=$(openssl rand -hex 16)   # RDS não aceita / @ " e espaço
 terraform init
+terraform apply -auto-approve -var="db_password=$DB_PASSWORD"
 
-# Ver o plano
-terraform plan -var="sql_admin_password=$SQL_PASSWORD"
+# ...labs...
 
-# Aplicar (provisiona TUDO de uma vez — ~8 min)
-terraform apply -auto-approve -var="sql_admin_password=$SQL_PASSWORD"
-
-# ... usar os recursos durante o lab ...
-
-# Destruir tudo ao final (regra de ouro — custo zero)
-terraform destroy -auto-approve -var="sql_admin_password=$SQL_PASSWORD"
+terraform destroy -auto-approve -var="db_password=$DB_PASSWORD"
 ```
 
-## Arquivos
+## Decisões de projeto
 
-| Arquivo | O que define |
-|---------|--------------|
-| [main.tf](main.tf) | Providers, sufixo aleatório, Resource Group, locals |
-| [variables.tf](variables.tf) | `location` e `sql_admin_password` |
-| [outputs.tf](outputs.tf) | Nomes e endpoints consumidos pelos scripts Python |
-| [storage.tf](storage.tf) | Storage Account + 3 containers + lifecycle |
-| [sql.tf](sql.tf) | SQL Server + Database (GP Serverless, auto-pause) + firewall rules |
-| [keyvault.tf](keyvault.tf) | Key Vault + RBAC + segredo da connection string |
-| [cosmos.tf](cosmos.tf) | Cosmos DB Account (Serverless) + DB + container `reviews` |
-| [search.tf](search.tf) | AI Search service (SKU Free) + 2 role assignments |
-
-## Outputs disponíveis após `apply`
-
-Pegue valores específicos com `terraform output -raw <nome>`:
-
-```bash
-terraform output -raw storage_account_name
-terraform output -raw key_vault_name
-terraform output -raw cosmos_endpoint
-terraform output -raw search_endpoint
-```
-
-Os scripts Python em [../scripts/](../scripts/) consomem esses outputs via variáveis de ambiente.
-
-## Observações
-
-- **Região:** default `centralus`. Em contas Azure for Students o Azure SQL costuma ficar `ProvisioningDisabled` em eastus2; `centralus` é permitido pela política e provisiona SQL. Sobrescreva com `-var="location=<regiao>"` se necessário.
-- **Cosmos serverless (sem free-tier):** evita o limite de "1 conta free-tier por assinatura". Serverless cobra por operação — custo do lab ≈ centavos. Para ligar o free-tier: `-var="cosmos_free_tier=true"`.
-- **AI Search SKU Free:** permite **apenas 1 instância free por assinatura**. Se faltar capacidade na região, tente outra região permitida.
-- **Auto-pausa do SQL:** o banco serverless entra em standby após 60 min sem uso. A primeira query depois disso pode levar ~30s.
-- **Custo:** serverless + auto-pause + SKUs free deixam o lab em ~$0 enquanto rodando. Não esqueça do `destroy` no final.
-- **Senha do SQL:** sempre gere com `openssl rand -base64 24`. Nunca commite a senha. O Terraform usa `var.sql_admin_password` via `-var=`.
+- **Acesso só do seu IP:** `data "http"` descobre o IP de saída do CloudShell e libera só ele no RDS (5432) e no MongoDB (27017). Se abrir um CloudShell novo e o IP mudar, rode `apply` de novo.
+- **Sem segredo no código:** os scripts leem a connection string do Secrets Manager com a credencial da LabRole. `recovery_window_in_days = 0` deixa recriar o mesmo nome logo depois de um destroy.
+- **Custo de lab:** RDS sem backup automático nem snapshot final, DynamoDB on-demand, bucket com `force_destroy`. O RDS é o item mais caro — não esqueça o destroy.
+- **Learner Lab:** nada de IAM role nova; nada de região fora de `us-east-1`/`us-west-2`.
+- **Imagens do Mongo:** `public.ecr.aws/docker/library/*` é o espelho oficial das imagens do Docker Hub, sem limite de pull anônimo.

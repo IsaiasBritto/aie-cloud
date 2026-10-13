@@ -1,12 +1,10 @@
 terraform {
-  required_version = ">= 1.9"
+  required_version = ">= 1.5"
 
   required_providers {
-    azurerm = {
-      source = "hashicorp/azurerm"
-      # 4.x e obrigatorio: o codigo usa free_tier_enabled (cosmos) e
-      # partition_key_paths (container), que nao existem na 3.x.
-      version = "~> 4.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
     random = {
       source  = "hashicorp/random"
@@ -16,23 +14,18 @@ terraform {
       source  = "hashicorp/http"
       version = "~> 3.4"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.12"
-    }
   }
 }
 
-provider "azurerm" {
-  features {
-    key_vault {
-      # Permite recriar o Key Vault com o mesmo nome logo apos um destroy,
-      # sem esperar os 7 dias de soft delete.
-      purge_soft_delete_on_destroy = true
-    }
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = local.tags
   }
 }
 
+# Sufixo aleatório: nomes de bucket são globais, e vários alunos rodam o mesmo código
 resource "random_string" "sufixo" {
   length  = 6
   upper   = false
@@ -40,21 +33,26 @@ resource "random_string" "sufixo" {
 }
 
 locals {
+  nome = "qc-aula02-${random_string.sufixo.result}"
   tags = {
     aula         = "2"
     disciplina   = "cloud-cognitive"
     projeto      = "quantum-commerce"
     provisionado = "terraform"
   }
-  mongo_admin_pass = "QCadmin2024!"
 }
 
-# Resource Group da Aula 2
-resource "azurerm_resource_group" "rg" {
-  name     = "rg-qc-aula02-${random_string.sufixo.result}"
-  location = var.location
-  tags     = local.tags
+# Rede: VPC padrão do Learner Lab
+data "aws_vpc" "padrao" {
+  default = true
 }
 
-# Objeto do usuário autenticado (usado para conceder RBAC no Key Vault/Cosmos/Search)
-data "azurerm_client_config" "current" {}
+# IP público de saída do CloudShell — usado para liberar o RDS e o Mongo só para você.
+# Se você abrir um CloudShell novo e o IP mudar, rode terraform apply de novo.
+data "http" "meu_ip" {
+  url = "https://checkip.amazonaws.com"
+}
+
+locals {
+  meu_ip_cidr = "${chomp(data.http.meu_ip.response_body)}/32"
+}

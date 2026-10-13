@@ -1,25 +1,24 @@
 """
-Aula 2 / Atividade 3-A — Inserir 30 reviews fictícias da QC no Cosmos DB.
+Aula 2 / Lab 3A — Inserir 30 reviews fictícias da QC no Amazon DynamoDB.
 
 Demonstra:
-- Cliente Cosmos autenticado por key lida do Key Vault (sem chave hardcoded).
-- Upsert de documentos com partition key.
-- Query particionada.
+- Cliente boto3 autenticado pela LabRole do CloudShell (sem chave no código).
+- Escrita em lote (batch_writer) numa tabela com chave de partição.
+- Query por partição (produto_id) — a leitura barata do DynamoDB.
 
-Variáveis de ambiente necessárias:
-    COSMOS_ENDPOINT  — endpoint do Cosmos DB (terraform output -raw cosmos_endpoint)
-    KEY_VAULT_NAME   — nome do Key Vault (terraform output -raw key_vault_name)
+Variáveis de ambiente:
+    DYNAMO_TABLE — nome da tabela (terraform output -raw dynamodb_table)
 
 Dependências:
-    pip install --user azure-identity azure-cosmos azure-keyvault-secrets
+    pip install --user boto3
 """
 
 import os
 import random
+import sys
 
-from azure.cosmos import CosmosClient
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
+import boto3
+from boto3.dynamodb.conditions import Attr, Key
 
 # Templates de reviews — variados por sentimento
 TEMPLATES = [
@@ -37,58 +36,39 @@ TEMPLATES = [
 
 
 def main():
-    endpoint = os.environ["COSMOS_ENDPOINT"]
-    kv_name = os.environ["KEY_VAULT_NAME"]
+    nome_tabela = os.environ.get("DYNAMO_TABLE")
+    if not nome_tabela:
+        print("Exporte DYNAMO_TABLE:  export DYNAMO_TABLE=$(terraform output -raw dynamodb_table)")
+        sys.exit(1)
 
-    # IMPORTANTE — por que key e não DefaultAzureCredential direto no Cosmos:
-    # o Cloud Shell NÃO consegue emitir token AAD para a audience de data-plane
-    # do Cosmos (https://<conta>.documents.azure.com) — todas as credenciais
-    # falham com AudienceNotSupported. Então autenticamos no Cosmos com a KEY,
-    # lida do Key Vault (cujo token AAD funciona no Cloud Shell) — sem hardcode.
-    # Em produção (Function/Container com Managed Identity própria) dá para usar
-    # CosmosClient(endpoint, credential=DefaultAzureCredential()) direto, graças à
-    # role data-plane concedida no Terraform (azurerm_cosmosdb_sql_role_assignment).
-    kv = SecretClient(
-        vault_url=f"https://{kv_name}.vault.azure.net",
-        credential=DefaultAzureCredential(),
-    )
-    cosmos_key = kv.get_secret("cosmos-primary-key").value
-
-    client = CosmosClient(endpoint, credential=cosmos_key)
-    db = client.get_database_client("qc-db")
-    container = db.get_container_client("reviews")
-
-    print(f"→ Inserindo 30 reviews em {endpoint}...")
+    tabela = boto3.resource("dynamodb").Table(nome_tabela)
+    print(f"→ Inserindo 30 reviews em {nome_tabela}...")
 
     random.seed(42)
-    inseridos = 0
-    for i in range(1, 31):
-        produto_id = random.randint(1, 20)
-        texto, score = random.choice(TEMPLATES)
-        review = {
-            "id": f"r-{i:03d}",
-            "produto_id": str(produto_id),
-            "score": score,
-            "texto": texto,
-            "cliente": f"cliente-{random.randint(100, 999)}",
-        }
-        container.upsert_item(review)
-        inseridos += 1
+    with tabela.batch_writer() as batch:  # agrupa em lotes de 25 automaticamente
+        for i in range(1, 31):
+            produto_id = random.randint(1, 20)
+            texto, score = random.choice(TEMPLATES)
+            batch.put_item(
+                Item={
+                    "produto_id": produto_id,  # chave de partição (N)
+                    "review_id": f"r-{i:03d}",  # chave de ordenação (S)
+                    "score": score,
+                    "texto": texto,
+                    "cliente": f"cliente-{random.randint(100, 999)}",
+                }
+            )
+    print("✓ 30 reviews inseridas")
 
-    print(f"✓ {inseridos} reviews inseridas")
-
-    # Query: reviews positivas do produto 5
+    # Query: reviews positivas do produto 5 — lê UMA partição só
     print("\n=== Reviews 4+ do produto 5 ===")
-    query = "SELECT * FROM c WHERE c.produto_id = @pid AND c.score >= 4"
-    items = list(
-        container.query_items(
-            query=query,
-            parameters=[{"name": "@pid", "value": "5"}],
-            enable_cross_partition_query=False,
-        )
+    resp = tabela.query(
+        KeyConditionExpression=Key("produto_id").eq(5),
+        FilterExpression=Attr("score").gte(4),
     )
-    for r in items:
+    for r in resp["Items"]:
         print(f"  [score {r['score']}] {r['texto']}")
+    print(f"\n(capacidade consumida: a query leu só a partição produto_id=5 — {resp['ScannedCount']} itens)")
 
 
 if __name__ == "__main__":

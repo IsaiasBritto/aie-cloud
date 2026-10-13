@@ -12,9 +12,9 @@
 
 Esta é a **2ª entrega de grupo** da disciplina. Os 3 níveis são **divisão de trabalho dentro do grupo**, não escolha livre:
 
-- 🟢 **Nível 1 — Básico:** consolida storage, tiers, relacional vs NoSQL, RBAC do Key Vault
-- 🟡 **Nível 2 — Intermediário:** modelagem de dados QC + plano de migração + particionamento Cosmos
-- 🔴 **Nível 3 — Avançado:** **bônus opcional** — vector search verdadeira (embeddings), Synapse serverless, benchmark Cosmos vs SQL vs AI Search
+- 🟢 **Nível 1 — Básico:** consolida storage, classes do S3, relacional vs NoSQL, IAM do Secrets Manager
+- 🟡 **Nível 2 — Intermediário:** modelagem de dados QC + plano de migração + particionamento DynamoDB (ou Mongo)
+- 🔴 **Nível 3 — Avançado:** **bônus opcional** — busca híbrida (vetor + full-text), OLAP com Athena (proposta), benchmark
 
 **Mínimo obrigatório:** N1 + N2 cobertos. **N3 é bônus** (até +2 pts extras).
 
@@ -22,7 +22,7 @@ Esta é a **2ª entrega de grupo** da disciplina. Os 3 níveis são **divisão d
 
 - Iniciantes em cloud: N1 (consolidação)
 - Intermediários: N2 (bloco QC — matriz de decisão e plano de migração)
-- Experientes: N3 (bônus) — vector search é o tópico mais técnico
+- Experientes: N3 (bônus) — busca híbrida é o tópico mais técnico
 
 > **Rodízio:** quem fez N1 na Aula 1 deve preferencialmente fazer N2 ou N3 agora. Vale ponto da rubrica (Critério 4 — Colaboração).
 
@@ -30,7 +30,7 @@ Esta é a **2ª entrega de grupo** da disciplina. Os 3 níveis são **divisão d
 
 Use o [template em `entregas/template-entrega-grupo.md`](../../entregas/template-entrega-grupo.md) para o `entrega-grupo-aula02.md` dentro do ZIP.
 
-> **Política "no install":** Tudo roda no Azure Cloud Shell. `pip install --user` é OK no Cloud Shell.
+> **Política "no install":** Tudo roda no AWS CloudShell. `pip install --user` é OK no CloudShell.
 
 ---
 
@@ -55,9 +55,9 @@ Para cada cenário, escolha **Object Storage**, **File Storage** ou **Block Stor
 - Imagens de produtos: **Object** (volume alto, acesso via HTTP, sem necessidade de sistema de arquivos)
 - Disco da VM de banco: **Block** (baixa latência, atrelado a uma VM)
 - Pasta compartilhada entre VMs: **File** (montável em múltiplas VMs simultaneamente como `/mnt/dados`)
-- Backup com 7 anos: **Object com Archive tier** (custo baixíssimo, acesso raro)
-- Modelos `.pkl` para serving: **Object** (downloads via HTTP, versionamento por blob)
-- Logs para análise: **Object com lifecycle Hot→Cool→Archive** (analytics serverless sobre Blob)
+- Backup com 7 anos: **Object (S3 Glacier Deep Archive)** (custo baixíssimo, acesso raro)
+- Modelos `.pkl` para serving: **Object (S3)** (downloads via HTTP, versionamento de objeto)
+- Logs para análise: **Object com lifecycle Standard → Standard-IA → Glacier** (analytics serverless com Athena sobre o S3)
 
 </details>
 
@@ -65,21 +65,23 @@ Para cada cenário, escolha **Object Storage**, **File Storage** ou **Block Stor
 
 ### Exercício 1.2 — Tiers de acesso (cálculo)
 
-A Quantum Commerce armazena **2 TB de logs de compras**. Os primeiros 30 dias os logs são consultados para detecção de fraude (Hot). Depois disso, viram dados arquivados de compliance LGPD (Archive, retenção 5 anos).
+A Quantum Commerce armazena **2 TB de logs de compras**. Os primeiros 30 dias os logs são consultados para detecção de fraude (S3 Standard). Depois disso, viram dados arquivados de compliance LGPD (S3 Glacier Deep Archive, retenção 5 anos).
 
-a) Quanto custaria 1 mês desses logs **se mantidos 100% em Hot tier**? (Use ~$0,018/GB/mês)
-b) Quanto custaria 1 mês desses logs **com lifecycle: 30 dias Hot + Archive depois**? (Archive ~$0,002/GB/mês)
+a) Quanto custaria 1 mês desses logs **se mantidos 100% em S3 Standard**? (Use ~$0,023/GB/mês em us-east-1)
+b) Quanto custaria 1 mês desses logs **com lifecycle: 30 dias Standard + Deep Archive depois**? (Deep Archive ~$0,00099/GB/mês)
 c) Economia anual com a lifecycle policy?
 
 <details>
 <summary>Gabarito</summary>
 
-- a) 2.048 GB × $0,018 = **$36,86/mês** (~$442/ano)
-- b) Dados estão sempre em Archive depois de 30 dias. Considerando steady state, ~96,7% em Archive:
-  - Hot: 2048 × 30/365 × $0,018 = $3,03/mês (média anual)
-  - Archive: 2048 × 335/365 × $0,002 = $3,76/mês (média anual)
-  - Total: ~**$6,79/mês**
-- c) Economia anual: ($36,86 - $6,79) × 12 = **~$360/ano**
+- a) 2.048 GB × $0,023 = **$47,10/mês** (~$565/ano)
+- b) Considerando steady state, ~92% do volume em Deep Archive:
+  - Standard: 2048 × 30/365 × $0,023 = $3,87/mês (média anual)
+  - Deep Archive: 2048 × 335/365 × $0,00099 = $1,86/mês (média anual)
+  - Total: ~**$5,73/mês**
+- c) Economia anual: ($47,10 - $5,73) × 12 = **~$496/ano**
+
+> Atenção ao que o cálculo não mostra: Deep Archive cobra para **ler** (recuperação em até 12 h) e tem permanência mínima de 180 dias.
 
 > Para a QC com volumes reais (centenas de TB), essa decisão impacta facilmente seis dígitos por ano.
 
@@ -91,8 +93,8 @@ c) Economia anual com a lifecycle policy?
 
 Para cada caso de uso da Quantum Commerce, marque qual tipo de banco é mais adequado e justifique:
 
-| Caso de uso | Relacional (Azure SQL) | NoSQL doc (Cosmos) | Vector DB (AI Search) | Justificativa |
-|-------------|------------------------|--------------------|-----------------------|---------------|
+| Caso de uso | Relacional (RDS PostgreSQL) | NoSQL (DynamoDB) | Vector DB (pgvector) | Justificativa |
+|-------------|-----------------------------|------------------|----------------------|---------------|
 | Carrinho de compras ativo do usuário | | | | |
 | Catálogo de produtos com SKU, preço, estoque | | | | |
 | Reviews dos clientes (texto livre + score) | | | | |
@@ -109,35 +111,35 @@ Para cada caso de uso da Quantum Commerce, marque qual tipo de banco é mais ade
 - Reviews: **NoSQL doc** (texto livre, sem schema rígido)
 - Recomendação: **Vector DB** (similaridade semântica)
 - Histórico de pedidos: **Relacional** (ACID, faturamento exige garantias)
-- Sessão (key-value): **Redis** ou **Cosmos com TTL** (não cabe perfeitamente nas opções, mas Cosmos é o mais próximo)
-- Logs de navegação: **NoSQL** ou Object Storage + Synapse — depende do uso analítico
+- Sessão (key-value): **DynamoDB com TTL** (ou ElastiCache/Redis, se a latência for crítica)
+- Logs de navegação: **NoSQL** ou S3 + Athena — depende do uso analítico
 
 </details>
 
 ---
 
-### Exercício 1.4 — Key Vault e RBAC
+### Exercício 1.4 — Secrets Manager e IAM
 
-Você acabou de provisionar o Key Vault da Aula 2. Para cada perfil, escolha a role built-in e justifique:
+Você acabou de provisionar o Secrets Manager da Aula 2. Para cada perfil, descreva a permissão IAM mínima (ações + recurso) e justifique:
 
-| Perfil | Role no Key Vault | Justificativa |
-|--------|-------------------|---------------|
-| Você (criador do Vault, faz dev e ops) | | |
-| Azure Function que consulta `T_PRODUTOS` precisa ler a connection string | | |
-| Engenheiro de segurança que audita os segredos sem alterá-los | | |
-| Pipeline de CI/CD que injeta novos segredos automaticamente | | |
-| Time de FinOps que precisa ver custo do Vault sem ver segredos | | |
+| Perfil | Ações IAM no Secrets Manager | Justificativa |
+|--------|------------------------------|---------------|
+| Você (dev e ops do lab) | | |
+| Lambda que consulta `t_produtos` precisa ler a connection string | | |
+| Engenheiro de segurança que audita os segredos sem ver os valores | | |
+| Pipeline de CI/CD que cria e rotaciona segredos | | |
+| Time de FinOps que precisa ver o custo dos segredos sem ver os valores | | |
 
-**Referência:** [Azure Built-in Roles — Key Vault](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles#key-vault)
+**Referência:** [Ações, recursos e condições do Secrets Manager](https://docs.aws.amazon.com/service-authorization/latest/reference/list_awssecretsmanager.html)
 
 <details>
 <summary>Sugestões</summary>
 
-- Você: **Key Vault Secrets Officer** (CRUD em segredos — sem precisar de Owner)
-- Function lendo segredos: **Key Vault Secrets User** (só leitura no plano de dados de segredos) — via Managed Identity
-- Auditor: **Key Vault Reader** (lê metadados, não os valores)
-- CI/CD injetando segredos: **Key Vault Secrets Officer** com escopo limitado (idealmente Service Principal dedicado)
-- FinOps: **Reader** no Resource Group (vê custo no Cost Management, não acessa Vault)
+- Você: `secretsmanager:*` restrito ao prefixo `arn:aws:secretsmanager:*:*:secret:qc-aula02-*` (nunca `Resource: "*"` em produção)
+- Lambda lendo o segredo: só `secretsmanager:GetSecretValue` no ARN daquele segredo, na **execution role** da função
+- Auditor: `secretsmanager:ListSecrets` e `DescribeSecret` — **sem** `GetSecretValue`
+- CI/CD: `CreateSecret`, `PutSecretValue`, `RotateSecret` no prefixo do projeto, via role assumida por OIDC
+- FinOps: nada no Secrets Manager — acesso de leitura ao Cost Explorer (`ce:Get*`), filtrando pela tag `projeto`
 
 </details>
 
@@ -161,8 +163,8 @@ A Quantum Commerce tem os seguintes domínios:
 
 **Sua tarefa:** Preencha a matriz de decisão abaixo:
 
-| Domínio | Serviço Azure escolhido | SKU/Configuração | Justificativa em 1-2 frases |
-|---------|-------------------------|------------------|------------------------------|
+| Domínio | Serviço AWS escolhido | Tipo/Configuração | Justificativa em 1-2 frases |
+|---------|-----------------------|-------------------|------------------------------|
 | Produtos | | | |
 | Clientes | | | |
 | Pedidos | | | |
@@ -190,257 +192,121 @@ A Quantum Commerce hoje tem:
 **Sua tarefa:** Proponha um plano de migração de 12 meses considerando:
 
 a) **Quais dos 6 Rs** (Aula 1) você usaria para cada repositório atual?
-b) **Quais serviços Azure** ficariam com cada um, considerando custo + criticidade?
-c) **Como migrar** sem downtime? (Pesquise sobre Azure Database Migration Service e AzCopy)
-d) **Estimativa de custo de egress** para os 50 TB de imagens (a primeira saída custa banda)
+b) **Quais serviços AWS** ficariam com cada um, considerando custo + criticidade?
+c) **Como migrar** sem downtime? (Pesquise sobre AWS DMS, AWS DataSync e a família Snowball)
+d) **Estimativa de custo de transferência** para os 50 TB de imagens (entrar na AWS é grátis — e sair depois?)
 e) **Como manter compliance LGPD** — onde os dados de brasileiros podem ficar?
 
 Use as calculadoras dos 3 provedores se quiser comparar custos.
 
 ---
 
-### Exercício 2.3 — Particionamento no Cosmos DB
+### Exercício 2.3 — Particionamento no DynamoDB (ou no MongoDB)
 
-No lab da Aula 2, o container `reviews` foi particionado por `produto_id`. Responda:
+No lab da Aula 2, a tabela `reviews` tem chave de partição `produto_id` e chave de ordenação `review_id`. Responda:
 
-a) Por que **NÃO** seria boa partitioning key:
-   - `id` da review? (3 razões)
+a) Por que **NÃO** seria boa chave de partição:
+   - `review_id` sozinho? (3 razões — pense nas consultas que o agente faz)
    - `score` (1-5)? (2 razões)
    - `data_da_review` (timestamp)? (2 razões)
 
-b) Por que `produto_id` **funciona razoavelmente bem** mas pode ter um problema. Qual problema?
+b) Por que `produto_id` **funciona razoavelmente bem**, mas pode ter um problema. Qual? (Pesquise "hot partition")
 
-c) Se a QC quisesse otimizar para "todas as reviews de um cliente específico", como seria a estratégia? (Pesquise sobre "hierarchical partition keys" do Cosmos)
+c) Se a QC quisesse otimizar para "todas as reviews de um cliente específico", como seria? (Pesquise **Global Secondary Index** no DynamoDB — ou índice composto no MongoDB)
 
-d) Estime: se um produto tiver 50.000 reviews, qual o tamanho aproximado da partição? Quanto isso é da quota de 20 GB por partição lógica do Cosmos?
+d) Estime: um produto com 50.000 reviews de ~400 bytes. Quanto ocupa a partição? Compare com o limite de **400 KB por item** e com o limite de **10 GB por valor de chave de partição** (que vale quando a tabela tem Local Secondary Index).
+
+e) **Se o grupo fez o Lab 3C (MongoDB):** como a chave de shard do MongoDB se compara à chave de partição do DynamoDB?
 
 ---
 
-## 🔴 Nível 3 — Avançado: Vector Search Real e Analytics
+## 🔴 Nível 3 — Avançado: Busca híbrida, OLAP e benchmark
 
-### Exercício 3.1 — Vector search verdadeira no AI Search
+### Exercício 3.1 — Busca híbrida: vetor + full-text no mesmo PostgreSQL
 
-O lab usou `semantic_search`. Vamos agora fazer **vector search real** gerando embeddings.
+O lab fez busca **só por significado** (pgvector). Busca só por vetor erra em código de produto, marca e número ("Dell Inspiron 15"); busca só por palavra erra em sinônimo ("algo para trabalhar em pé"). A busca **híbrida** combina as duas.
 
-**Tudo no Cloud Shell — sem instalação local.**
+**Tudo no CloudShell, no mesmo RDS do lab.**
 
-#### Parte A — Gerar embeddings
+1. Adicione à tabela `produtos_vetor` uma coluna de full-text em português:
 
-Como a disciplina é Cloud (e Azure OpenAI não está no escopo padrão), use a biblioteca `sentence-transformers` que roda local no Cloud Shell:
-
-```bash
-pip install --user sentence-transformers azure-search-documents azure-storage-blob azure-identity
+```sql
+ALTER TABLE produtos_vetor
+  ADD COLUMN tsv tsvector
+  GENERATED ALWAYS AS (to_tsvector('portuguese', nome || ' ' || coalesce(descricao,''))) STORED;
+CREATE INDEX produtos_tsv ON produtos_vetor USING gin (tsv);
 ```
 
-> ⚠️ Sentence Transformers baixa modelo de ~80MB no primeiro uso — vai para `~/.cache` no storage persistente do Cloud Shell.
+2. Escreva `buscar_hibrido.py` que, para uma consulta, roda as duas buscas e funde os rankings com **Reciprocal Rank Fusion** (RRF: `score = Σ 1/(60 + posição)`):
 
-Script:
+```sql
+-- ranking por palavra
+SELECT id, ts_rank(tsv, plainto_tsquery('portuguese', %s)) AS r
+FROM produtos_vetor WHERE tsv @@ plainto_tsquery('portuguese', %s)
+ORDER BY r DESC LIMIT 10;
 
-```python
-"""
-Gera embeddings dos produtos e indexa no AI Search com campo vector.
-Requer: pip install --user sentence-transformers azure-search-documents
-"""
-import os, csv
-from sentence_transformers import SentenceTransformer
-from azure.identity import DefaultAzureCredential
-from azure.search.documents.indexes import SearchIndexClient
-from azure.search.documents.indexes.models import (
-    SearchIndex, SimpleField, SearchableField, SearchField,
-    SearchFieldDataType, VectorSearch, HnswAlgorithmConfiguration,
-    VectorSearchProfile,
+-- ranking por significado
+SELECT id FROM produtos_vetor ORDER BY embedding <=> %s LIMIT 10;
+```
+
+3. Rode as 3 consultas abaixo nos 3 modos (palavra, vetor, híbrido) e registre o top 3 de cada:
+   - `"Dell Inspiron"`
+   - `"algo para trabalhar em pé"`
+   - `"presente para quem gosta de correr"`
+
+**Reflexão (no `entrega-grupo-aula02.md`):**
+
+1. Em qual consulta cada modo falhou? Por quê?
+2. Que modelo de embedding você usaria em produção? (Dica: Amazon Titan Text Embeddings V2 ou Cohere Embed Multilingual, no Bedrock)
+3. Como manter os embeddings atualizados quando produtos novos chegam? (pipeline incremental — evento do S3 → Lambda)
+4. Quando valeria trocar o pgvector por **Amazon OpenSearch Service** ou por **Bedrock Knowledge Bases**?
+
+---
+
+### Exercício 3.2 — OLAP com Athena: proposta (sem executar)
+
+> O Learner Lab não libera o Athena — este exercício é de **arquitetura**, não de execução.
+
+A QC quer analisar 3 anos de logs de compras (dezenas de TB) sem carregar tudo num data warehouse.
+
+1. **Desenhe** o fluxo: logs no S3 (`logs/`) → catálogo no **AWS Glue Data Catalog** → SQL no **Amazon Athena** → painel no **Amazon QuickSight**.
+2. **Escreva** a DDL e a consulta que você rodaria (formato e particionamento são a parte importante):
+
+```sql
+CREATE EXTERNAL TABLE logs_compras (
+  pedido_id string, produto_id int, valor decimal(10,2), ts timestamp
 )
-from azure.search.documents import SearchClient
-from azure.storage.blob import BlobServiceClient
+PARTITIONED BY (ano int, mes int)
+STORED AS PARQUET
+LOCATION 's3://<bucket>/logs/compras/';
 
-DIMENSION = 384  # all-MiniLM-L6-v2 produz vetores 384-dim
-INDEX_NAME = "produtos-vector-index"
-
-def main():
-    endpoint = os.environ["SEARCH_ENDPOINT"]
-    storage = os.environ["STORAGE_ACCOUNT_NAME"]
-    credential = DefaultAzureCredential()
-
-    print("→ Carregando modelo de embedding...")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    # Baixar produtos
-    blob = BlobServiceClient(f"https://{storage}.blob.core.windows.net", credential=credential)
-    csv_text = blob.get_blob_client("catalogo", "produtos.csv").download_blob().readall().decode("utf-8")
-    rows = list(csv.DictReader(csv_text.splitlines()))
-
-    # Gerar embeddings de "nome + descricao"
-    print(f"→ Gerando embeddings de {len(rows)} produtos...")
-    textos = [f"{r['nome']}. {r['descricao']}" for r in rows]
-    embeddings = model.encode(textos).tolist()
-    print(f"✓ Embeddings gerados (dim={len(embeddings[0])})")
-
-    # Definir índice com campo vector
-    index_client = SearchIndexClient(endpoint=endpoint, credential=credential)
-    index = SearchIndex(
-        name=INDEX_NAME,
-        fields=[
-            SimpleField(name="id", type=SearchFieldDataType.String, key=True),
-            SearchableField(name="nome", type=SearchFieldDataType.String),
-            SearchableField(name="descricao", type=SearchFieldDataType.String),
-            SimpleField(name="categoria", type=SearchFieldDataType.String, filterable=True),
-            SearchField(
-                name="content_vector",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                searchable=True,
-                vector_search_dimensions=DIMENSION,
-                vector_search_profile_name="produtos-hnsw-profile",
-            ),
-        ],
-        vector_search=VectorSearch(
-            algorithms=[HnswAlgorithmConfiguration(name="produtos-hnsw")],
-            profiles=[VectorSearchProfile(name="produtos-hnsw-profile", algorithm_configuration_name="produtos-hnsw")],
-        ),
-    )
-    try: index_client.delete_index(INDEX_NAME)
-    except: pass
-    index_client.create_index(index)
-
-    # Indexar
-    search_client = SearchClient(endpoint=endpoint, index_name=INDEX_NAME, credential=credential)
-    docs = [
-        {
-            "id": r["id"], "nome": r["nome"], "descricao": r["descricao"],
-            "categoria": r["categoria"], "content_vector": embeddings[i],
-        }
-        for i, r in enumerate(rows)
-    ]
-    search_client.upload_documents(docs)
-    print(f"✓ {len(docs)} produtos indexados com vetores")
-
-    # Busca por vetor: gerar embedding da query e buscar nearest
-    queries = [
-        "preciso de uma cadeira boa para minha coluna",
-        "algo para acompanhar séries",
-        "presente para um amigo que ama café",
-    ]
-    for q in queries:
-        q_vec = model.encode(q).tolist()
-        print(f"\n=== Vector search: '{q}' ===")
-        results = search_client.search(
-            search_text=None,
-            vector_queries=[{
-                "kind": "vector",
-                "vector": q_vec,
-                "k_nearest_neighbors": 3,
-                "fields": "content_vector",
-            }],
-        )
-        for r in results:
-            print(f"  [{r['@search.score']:.4f}] {r['nome']}")
-
-if __name__ == "__main__":
-    main()
+SELECT mes, COUNT(*) AS pedidos, SUM(valor) AS receita
+FROM logs_compras WHERE ano = 2026
+GROUP BY mes ORDER BY mes;
 ```
 
-**Tarefa:** Execute, registre os resultados das 3 queries no `respostas-aula02.md` e **compare** com o semantic search do lab (parte B). Qual deu resultados mais relevantes? Onde cada um falha?
-
-#### Parte B — Reflexão
-
-Responda no `respostas-aula02.md`:
-
-1. Por que o modelo `all-MiniLM-L6-v2` é uma má escolha para produção da Quantum Commerce? (Dica: língua portuguesa, latência, qualidade)
-2. Que serviço da Azure você usaria para gerar embeddings em produção? (Dica: Azure OpenAI text-embedding-3-large)
-3. Como você manteria os embeddings atualizados quando produtos novos chegam? (Pipeline incremental)
-4. Quanto custaria gerar embeddings para 5M de produtos da QC com Azure OpenAI? (Pesquise os preços)
+3. **Calcule:** o Athena cobra por TB lido (~US$ 5/TB). Quanto custa a consulta acima sobre 30 TB de CSV sem partição? E sobre o mesmo dado em Parquet particionado por ano/mês, sabendo que o Parquet costuma comprimir ~5× e a consulta só lê 1 ano de 3?
+4. **Compare** com o Amazon Redshift Serverless: quando o warehouse passa a valer a pena?
 
 ---
 
-### Exercício 3.2 — Synapse Serverless: query sobre Blob
+### Exercício 3.3 — Benchmark: RDS × DynamoDB × pgvector
 
-A QC armazenou os `logs de compras` em formato Parquet no Blob. Em vez de carregar tudo num DWH, vamos usar **Synapse Serverless SQL Pool** para queryar direto no Blob (zero ETL).
+Para a pergunta do agente "**cadeira ergonômica para dor lombar**", você tem 3 opções na QC:
 
-#### Setup
-
-Adicione ao Terraform (crie `lab/terraform/synapse.tf` no seu fork):
-
-```hcl
-resource "azurerm_synapse_workspace" "qc" {
-  name                                 = "synapse-qc-${random_string.sufixo.result}"
-  resource_group_name                  = azurerm_resource_group.rg.name
-  location                             = azurerm_resource_group.rg.location
-  storage_data_lake_gen2_filesystem_id = azurerm_storage_data_lake_gen2_filesystem.synapse.id
-  sql_administrator_login              = "synadmin"
-  sql_administrator_login_password     = var.sql_admin_password
-  identity { type = "SystemAssigned" }
-  tags = local.tags
-}
-
-# Synapse precisa de Data Lake Storage Gen2
-resource "azurerm_storage_data_lake_gen2_filesystem" "synapse" {
-  name               = "synapsefs"
-  storage_account_id = azurerm_storage_account.qc.id   # precisa de is_hns_enabled=true
-}
-
-resource "azurerm_synapse_firewall_rule" "all_azure" {
-  name                 = "AllowAzure"
-  synapse_workspace_id = azurerm_synapse_workspace.qc.id
-  start_ip_address     = "0.0.0.0"
-  end_ip_address       = "0.0.0.0"
-}
-```
-
-> ⚠️ Synapse requer Storage com HNS habilitado: no `azurerm_storage_account` adicione `is_hns_enabled = true`. Isso impede algumas features de Blob clássico — leia a doc.
-
-#### Gerar dados de exemplo
-
-Crie 3 arquivos `logs_compras_jan.csv`, `_fev.csv`, `_mar.csv` com 1000 registros cada (script no `respostas-aula02.md`) e faça upload ao Blob.
-
-#### Query no Synapse
-
-1. No portal, abrir o Synapse Studio
-2. Conectar ao Serverless SQL Pool
-3. Executar:
-
-   ```sql
-   SELECT
-     CAST(periodo AS DATE) AS dia,
-     COUNT(*)              AS pedidos,
-     SUM(valor)            AS receita
-   FROM OPENROWSET(
-     BULK 'https://STORAGE.blob.core.windows.net/logs/compras_*.csv',
-     FORMAT = 'CSV',
-     PARSER_VERSION = '2.0',
-     FIRSTROW = 2
-   ) WITH (periodo VARCHAR(20), valor DECIMAL(10,2)) AS dados
-   GROUP BY CAST(periodo AS DATE)
-   ORDER BY dia;
-   ```
-
-4. **Reporte:** quantos bytes Synapse processou na query? (visível na aba "Resultados")
-
-#### Reflexão
-
-Responda no `respostas-aula02.md`:
-
-1. Por que Synapse Serverless faz sentido para a QC em vez de Synapse Dedicated Pool?
-2. Qual o custo de query: 5 TB processados/mês a $5 por TB?
-3. Como reduzir custo por query? (Dica: Parquet + partições)
-
----
-
-### Exercício 3.3 — Benchmark: Cosmos vs SQL vs AI Search
-
-Para a query "buscar produto que melhor responde à pergunta `cadeira ergonômica para dor lombar`", você tem 3 opções na QC:
-
-a) **Azure SQL** com `LIKE '%cadeira%'` e filtros sobre categoria/preço
-b) **Cosmos DB** com índice full-text (Cosmos não tem nativo — precisa Azure AI Search externo)
-c) **Azure AI Search** com semantic ranking ou vector search
+a) **RDS PostgreSQL** com `ILIKE '%cadeira%'` e filtros de categoria/preço
+b) **DynamoDB** — sem busca por texto nativa: o que seria preciso? (Scan com filtro? índice externo?)
+c) **pgvector** com busca por significado (ou a híbrida do 3.1)
 
 **Tarefa:**
 
-1. Implemente as 3 versões (você já tem AI Search no lab — adicione versão SQL e Cosmos)
-2. Meça latência média de 10 queries em cada
-3. Compare **qualidade** das respostas (subjetivamente — quem traria o produto certo?)
-4. Compare **custo** projetado: 1M queries/mês em cada
+1. Implemente (a) e (c); para (b), implemente o Scan com `contains()` e explique por que não escala
+2. Meça a latência média de 10 consultas em cada (`time.perf_counter()`)
+3. Compare a **qualidade** (quem traz o produto certo?)
+4. Projete o **custo** de 1M consultas/mês em cada (use o AWS Pricing Calculator)
 5. **Recomende** qual usar para o agente de busca da QC
 
-Entrega: tabela comparativa + recomendação justificada no `respostas-aula02.md`.
+Entrega: tabela comparativa + recomendação justificada.
 
 ---
 
@@ -452,8 +318,8 @@ A entrega é **um ZIP por grupo** (`entrega-grupo-NN-aula02.zip`) no Portal FIAP
 |------|--------------|----------------|
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
 | 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 respondidos | ✅ Sim | 3 pts (Critério 1) |
-| 🟡 N2 — 2.1 (matriz + diagrama), 2.2 (migração), 2.3 (particionamento Cosmos) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
-| 🔴 N3 — 3.1 (vector search verdadeira), 3.2 (Synapse), 3.3 (benchmark) | 🎁 Bônus | até +2 pts extras |
+| 🟡 N2 — 2.1 (matriz + diagrama), 2.2 (migração), 2.3 (particionamento DynamoDB ou Mongo) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
+| 🔴 N3 — 3.1 (busca híbrida: vetor + full-text), 3.2 (OLAP: proposta com Athena), 3.3 (benchmark) | 🎁 Bônus | até +2 pts extras |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total da entrega** | | **10 pts** (10% da nota final) |
 
