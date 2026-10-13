@@ -1,6 +1,0 @@
-$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineEndpoint.schema.json
-# Nome do endpoint precisa ser ÚNICO GLOBALMENTE no Azure.
-# Substitua <sufixo-unico> por uma string única (ex: suas iniciais + 4 dígitos: rec-qc-jdoe-7421)
-name: rec-qc-<sufixo-unico>
-description: Endpoint do recomendador da Quantum Commerce
-auth_mode: key

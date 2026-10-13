@@ -4,11 +4,11 @@
 
 Ao final desta aula, você será capaz de:
 
-- Provisionar um **Azure ML Workspace** + **Compute Cluster** com **scale-to-zero** via Terraform.
-- Treinar um modelo simples rastreando o experimento com **MLflow** (params, metrics, artifacts).
-- Versionar o modelo no **Model Registry** do Azure ML.
-- Submeter um **Job reproduzível** no Compute Cluster com **environment** e **data asset** versionados.
-- Publicar o modelo como **Managed Online Endpoint** (REST) e consumi-lo.
+- Provisionar via Terraform um **bucket S3 versionado** e um **Model Registry** (Model Package Group) do **Amazon SageMaker AI**.
+- Treinar um modelo simples rastreando o experimento (**MLflow** local + métricas do Training Job).
+- Submeter um **Training Job reproduzível** (mesmo código, container versionado, dado versionado) — a máquina nasce e morre com o job.
+- Versionar e **aprovar** o modelo no **Model Registry**.
+- Publicar a versão aprovada como **endpoint** (serverless, escala a zero) e consumi-lo.
 - Identificar o **nível de maturidade MLOps** (0/1/2) e que automatizações faltam para subir de nível.
 
 > **Importante (perfil dos alunos):** esta disciplina é uma das primeiras do MBA. **Você não precisa saber ML/Python avançado** para fazer os exercícios. O modelo de recomendação é apenas um **veículo didático** para o ciclo MLOps. Modelagem em profundidade é tema da disciplina **AI Foundation and Learning Models**.
@@ -23,7 +23,7 @@ Sem MLOps, modelos viram **artefatos em notebooks** que ninguém consegue retrei
 
 ## Conexão com o Quantum Commerce
 
-Esta aula entrega o **5º recurso** consumido pelos agentes da QC: um **recomendador de produtos** treinado a partir do catálogo da Aula 2. O modelo é publicado como Endpoint REST e poderia ganhar uma rota `/recomendar` na Function da Aula 3 (exercício N2.2).
+Esta aula entrega o **5º recurso** consumido pelos agentes da QC: um **recomendador de produtos** treinado a partir do catálogo da Aula 2. O modelo é publicado como endpoint do SageMaker e poderia ganhar uma rota `/recomendar` na Lambda da Aula 3 (exercício N2.2).
 
 ---
 
@@ -32,10 +32,10 @@ Esta aula entrega o **5º recurso** consumido pelos agentes da QC: um **recomend
 | Arquivo | Quando usar |
 |---------|-------------|
 | [lab/guia-lab.md](lab/guia-lab.md) | Durante a aula — 4 atividades + wrap-up com destroy crítico |
-| [lab/terraform/](lab/terraform/) | Workspace + Compute Cluster (scale-to-zero) |
-| [lab/notebooks/](lab/notebooks/) | Script local de treino com MLflow tracking + Registry — L₂ |
-| [lab/job/](lab/job/) | Job reproduzível (train.py + conda.yml + data-asset.yml + job.yml) — L₃ |
-| [lab/endpoint/](lab/endpoint/) | Endpoint + deployment + payload de teste — L₄ |
+| [lab/terraform/](lab/terraform/) | Bucket versionado + dataset + Model Registry — L₁ |
+| [lab/codigo/](lab/codigo/) | `train.py` (roda local **e** no job) + `inference.py` (contrato do endpoint) — L₂/L₃ |
+| [lab/scripts/](lab/scripts/) | `submeter_job.py` · `registrar_modelo.py` · `implantar_endpoint.py` · `limpar.py` (boto3) — L₃/L₄ |
+| [lab/endpoint/](lab/endpoint/) | Payload de teste e como chamar — L₄ |
 | [exercicios.md](exercicios.md) | Após a aula — 3 níveis (N1/N2 conceituais; N3 avançado para perfil ML) |
 
 ## Entrega de grupo
@@ -48,9 +48,9 @@ A Aula 6 é dedicada ao **trabalho em grupo no projeto integrado final** (FinOps
 
 ## ⚠️ Alerta de custo
 
-O **Managed Online Endpoint** custa **~$0,30/h** (Standard_DS3_v2). **Deletar ANTES do `terraform destroy`** — esquecer significa ~$7/dia consumindo seu crédito do Azure for Students.
+O **Training Job** cobra só os minutos em que a máquina existe (~2–4 min de ml.m5.large: centavos). O **endpoint serverless** escala a zero. Se você usar **endpoint de instância** (`--tipo instancia`), a ml.m5.large custa ~US$ 0,115/h **ligada** — apague com `python3 scripts/limpar.py --registro` **antes** do `terraform destroy`.
 
-O Compute Cluster, em contraste, tem **scale-to-zero** (0 nodes idle = custo zero). Sobe automaticamente quando submete um job.
+> O AWS Academy Learner Lab libera o SageMaker AI com a **LabRole** como role de execução e um conjunto limitado de tipos de instância (ml.m5.large funciona para treino e endpoint).
 
 ---
 
@@ -59,4 +59,4 @@ O Compute Cluster, em contraste, tem **scale-to-zero** (0 nodes idle = custo zer
 - ✅ Aulas 1-4 concluídas
 - ✅ `produtos.csv` da Aula 2 acessível (já está commitado em [`aulas/02-storage-bancos/lab/data/produtos.csv`](../02-storage-bancos/lab/data/produtos.csv) — **não precisa ter a Aula 2 viva**)
 
-> **Sem dependência de Aula 4:** esta aula é independente do AI Services. Se você destruiu a Aula 4, segue normal.
+> **Sem dependência de Aula 4:** esta aula é independente dos serviços cognitivos. Se você destruiu a Aula 4, segue normal.
