@@ -1,20 +1,28 @@
 terraform {
+  required_version = ">= 1.5"
+
   required_providers {
-    azurerm = {
-      source = "hashicorp/azurerm"
-      # 4.x é necessário para azurerm_function_app_flex_consumption (Flex Consumption,
-      # sucessor do Linux Consumption/Y1 que será aposentado em set/2028).
-      version = ">= 4.4, < 5.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 
-provider "azurerm" {
-  features {}
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = local.tags
+  }
 }
 
 resource "random_string" "sufixo" {
@@ -24,6 +32,7 @@ resource "random_string" "sufixo" {
 }
 
 locals {
+  nome = "qc-aula03-${random_string.sufixo.result}"
   tags = {
     aula         = "3"
     disciplina   = "cloud-cognitive"
@@ -32,22 +41,22 @@ locals {
   }
 }
 
-# Resource Group da Aula 3
-resource "azurerm_resource_group" "rg" {
-  name     = "rg-qc-aula03-${random_string.sufixo.result}"
-  location = var.location
-  tags     = local.tags
+# No Learner Lab não se cria IAM role: Lambda e ECS usam a LabRole existente
+data "aws_iam_role" "lab" {
+  name = "LabRole"
 }
 
-# Flex Consumption Plan (FC1) — sucessor do Linux Consumption/Y1 (que será
-# aposentado em set/2028). Pay-per-execution, cold start menor, escala melhor.
-resource "azurerm_service_plan" "plan" {
-  name                = "asp-qc-aula03-${random_string.sufixo.result}"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  os_type             = "Linux"
-  sku_name            = "FC1"
-  tags                = local.tags
+data "aws_vpc" "padrao" {
+  default = true
 }
 
-# Storage Accounts (Function + catálogo) estão em storage.tf
+data "aws_subnets" "padrao" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.padrao.id]
+  }
+  filter {
+    name   = "default-for-az"
+    values = ["true"]
+  }
+}

@@ -32,7 +32,7 @@ O curso da Alura cobre os fundamentos. Esta apostila cobre **o que é específic
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  github.com/elthonf/aie-cloud   (PÚBLICO — só leitura)      │
+│  github.com/IsaiasBritto/aie-cloud   (PÚBLICO — só leitura)      │
 │  Material oficial: planos, labs, exercícios                  │
 │  Você faz "git clone" para baixar o material                 │
 └─────────────────────────────────────────────────────────────┘
@@ -61,12 +61,12 @@ O curso da Alura cobre os fundamentos. Esta apostila cobre **o que é específic
 
 ## Parte 1 — Clonar o material oficial (5 min)
 
-O repositório `aie-cloud` é **público**. Você não precisa fazer fork — só clonar para ter o material localmente no Cloud Shell.
+O repositório `aie-cloud` é **público**. Você não precisa fazer fork — só clonar para ter o material localmente no CloudShell.
 
 ```bash
-# No Cloud Shell
+# No CloudShell
 cd ~
-git clone https://github.com/elthonf/aie-cloud.git
+git clone https://github.com/IsaiasBritto/aie-cloud.git
 cd aie-cloud
 ls
 ```
@@ -147,7 +147,7 @@ qc-grupo-NN/
 
 ## Parte 4 — Como gerar o ZIP de entrega (5 min)
 
-### Opção A — Via `git archive` no Cloud Shell (recomendado)
+### Opção A — Via `git archive` no CloudShell (recomendado)
 
 ```bash
 # Ir para o repo clonado do grupo
@@ -169,7 +169,7 @@ Vantagens:
 - Inclui só a pasta da aula específica
 - Pasta dentro do ZIP tem prefixo claro
 
-### Opção B — `zip` direto no Cloud Shell
+### Opção B — `zip` direto no CloudShell
 
 ```bash
 cd ~/qc-grupo-NN
@@ -177,6 +177,10 @@ zip -r ~/entrega-grupo-NN-aula01.zip aula01/ -x "*.tfstate*" "*.pyc" "__pycache_
 ```
 
 > **Cuidado:** `zip -r aula01/` SEM o `-x` pode incluir `terraform.tfstate` (que tem segredos!) e `__pycache__/`. Por isso preferimos `git archive` ou `zip -x`.
+
+### Baixar o ZIP do CloudShell para o seu computador
+
+No CloudShell: **Actions → Download file** → informe o caminho completo, por exemplo `/home/cloudshell-user/entrega-grupo-NN-aula01.zip`. O arquivo vai para a pasta de downloads do navegador, pronto para o upload no Portal FIAP.
 
 ---
 
@@ -336,7 +340,7 @@ git log --oneline --all --graph
 Ao final, você deve ter:
 
 - ✅ Concluído o curso Alura de Git (pré-requisito)
-- ✅ Clone local do `aie-cloud` no Cloud Shell para consultar o material
+- ✅ Clone local do `aie-cloud` no CloudShell para consultar o material
 - ✅ Repositório **privado** do seu grupo criado no GitHub com todos os membros como collaborators
 - ✅ Saber gerar o ZIP da entrega via `git archive`
 - ✅ Estrutura de pastas iniciada (`aula01/`)

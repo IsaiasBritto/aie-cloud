@@ -1,0 +1,54 @@
+---
+title: Deva3 — Diagrama de sequência do POST /detectar
+---
+sequenceDiagram
+    autonumber
+
+    actor Aluno
+    participant Web as container web<br/>(Streamlit)
+    participant API as container api<br/>(FastAPI · principal.py)
+    participant Val as _validar_imagem<br/>(Pillow)
+    participant Serv as ServicoPessoasRekognition
+    participant Rek as Amazon Rekognition<br/>DetectLabels
+    participant Arm as ServicoArmazenamentoS3
+    participant S3 as Amazon S3
+
+    Aluno->>Web: sobe a foto, escolhe o modo<br/>e marca (ou não) o consentimento
+    Web->>API: POST /detectar · modo=pessoas · consentimento=true<br/>multipart/form-data
+
+    API->>Val: valida tamanho, tipo e integridade
+    alt arquivo inválido ou grande demais
+        Val--)API: ImagemInvalida / ImagemGrandeDemais
+        API--)Web: HTTP 400 ou 413 + campo como_resolver
+        Web--)Aluno: mostra a mensagem e o que fazer
+    else imagem válida
+        Val-->>API: (largura, altura) em pixels
+    end
+
+    API->>API: BMP ou WEBP vira PNG<br/>(o Rekognition só lê JPEG e PNG)
+    API->>Serv: detectar(bytes, largura, altura)
+    Serv->>Rek: detect_labels · Features GENERAL_LABELS<br/>filtro Person · MinConfidence 50<br/>assinado com a task role (SigV4)
+
+    alt Rekognition devolve erro
+        Rek--)Serv: AccessDenied · InvalidImageFormat · Throttling
+        Serv--)API: FalhaDeIntegracao(mensagem, como_resolver)
+        API--)Web: HTTP 502 + como_resolver
+    else 200 OK
+        Rek-->>Serv: Labels[Person].Instances[]<br/>BoundingBox 0–1 + Confidence 0–100
+        Serv->>Serv: _interpretar: proporção vira pixel,<br/>confiança vira 0–1, ordena
+        Serv-->>API: lista de (caixa, confiança)
+    end
+
+    API->>API: aplica o limiar<br/>acima_do_limiar = confianca ≥ LIMIAR_CONFIANCA<br/>monta ResultadoDeteccao
+
+    opt bucket configurado
+        API->>Arm: guardar(identificador, imagem?, resultado)
+        Note over Arm,S3: A imagem só é enviada se<br/>PERSISTIR_IMAGENS=true E consentimento=true.<br/>Sem consentimento, vai só o JSON.
+        Arm->>S3: put_object deteccoes/AAAA/MM/DD/[id]/
+        S3-->>Arm: gravado (expira em 7 dias)
+        Arm-->>API: prefixo no bucket
+    end
+
+    API-->>Web: HTTP 200 · ResultadoDeteccao (JSON)
+    Web->>Web: desenha as caixas sobre a foto<br/>ciano acima do limiar, âmbar abaixo
+    Web-->>Aluno: imagem anotada + tabela de coordenadas + JSON cru

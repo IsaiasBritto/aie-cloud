@@ -107,7 +107,7 @@ qc-grupo-NN-aulaXX/
 
 Tamanho ideal: < 5 MB. Limite do Portal FIAP: ~20 MB.
 
-> **Gerar o ZIP no Cloud Shell** (a partir do repo privado do grupo):
+> **Gerar o ZIP no CloudShell** (a partir do repo privado do grupo):
 >
 > ```bash
 > cd ~/qc-grupo-NN
@@ -127,8 +127,8 @@ O projeto integrado final consolida tudo o que foi construído ao longo das 6 au
 - `README.md` — visão geral da arquitetura QC, decisões-chave, instruções de execução
 - `arquitetura/diagrama-final.png` — diagrama da arquitetura QC com todas as camadas (Aulas 1-5)
 - `arquitetura/decisoes-tecnicas.md` — ADRs (mínimo 5 decisões)
-- `terraform/` — IaC consolidado que provisiona toda a infra (RG + Storage + SQL + Cosmos + AI Search + Function + AI Services + ML Workspace)
-- `function/` — Function da QC com as 5 tools (`/produtos`, `/transcrever`, `/analisar-reviews`, `/analisar-imagem`, `/recomendar`)
+- `terraform/` — IaC consolidado que provisiona toda a infra (S3 + RDS/pgvector + DynamoDB + Secrets Manager + Lambda + ECR/ECS + bucket e Registry do SageMaker)
+- `function/` — Lambda da QC com as 5 tools (`/produtos`, `/transcrever`, `/analisar-reviews`, `/analisar-imagem`, `/recomendar`)
 - `tools-spec.md` — spec das 5 tools em JSON Schema para consumo por agentes
 - `finops/` — estimativa de custo mensal + propostas de otimização (export do Pricing Calculator + análise)
 - `reflexao-estrategica.md` — roadmap de 12 meses + lições aprendidas

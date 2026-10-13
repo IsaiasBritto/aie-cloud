@@ -1,0 +1,6 @@
+# Instalado pelo container de scikit-learn da AWS ANTES de rodar o train.py.
+# Só é necessário para --vetorizador embeddings. O índice da PyTorch "cpu" evita
+# baixar a versão com CUDA (~2 GB) numa máquina que não tem GPU.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+sentence-transformers

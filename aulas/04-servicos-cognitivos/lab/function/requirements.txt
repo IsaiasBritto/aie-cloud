@@ -1,7 +1,5 @@
-azure-functions
-azure-identity
-azure-storage-blob
-azure-ai-textanalytics
-azure-ai-vision-imageanalysis
-pymongo
-requests
+# Empacotadas DENTRO do zip (a Lambda não instala requirements sozinha):
+#   pip install -r requirements.txt -t . -q --platform manylinux2014_x86_64 --python-version 3.12 --only-binary=:all:
+# O boto3 NÃO entra aqui: já vem no runtime Python da Lambda.
+aws-lambda-powertools>=3.0
+pymongo>=4.10

@@ -1,0 +1,71 @@
+# Validação do material — roda em todo push e pull request.
+#
+# Não cria nada na AWS: `terraform init -backend=false` + `validate` checam
+# sintaxe, tipos e referências sem credencial nenhuma. É a rede de segurança
+# para quem edita o material sem um Learner Lab aberto.
+name: validar
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: terraform · ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - aulas/01-fundamentos-iac/lab/terraform
+          - aulas/02-storage-bancos/lab/terraform
+          - aulas/03-serverless-containers/lab/terraform
+          - aulas/04-servicos-cognitivos/lab/terraform
+          - aulas/05-bedrock-agents/03-agente-Eva-aws/infra/terraform
+          - aulas/05-bedrock-agents/Lab/infra/terraform
+          - aulas/05-mlops/lab/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      # A Aula 1 lê ~/.ssh/id_rsa.pub; no CI basta existir um arquivo.
+      - name: chave SSH de mentira
+        run: mkdir -p ~/.ssh && ssh-keygen -q -t rsa -N "" -f ~/.ssh/id_rsa
+      - name: terraform fmt (informativo)
+        continue-on-error: true
+        run: terraform -chdir=${{ matrix.dir }} fmt -check -diff
+      - name: terraform init
+        run: terraform -chdir=${{ matrix.dir }} init -backend=false -input=false
+      - name: terraform validate
+        run: terraform -chdir=${{ matrix.dir }} validate
+
+  python:
+    name: python · compilação e testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: py_compile em todo o repositório
+        run: python -m compileall -q aulas
+      - name: testes do Deva3 (Aula 5 · Lab)
+        working-directory: aulas/05-bedrock-agents/Lab
+        run: |
+          pip install -q -r api/requirements.txt pytest httpx
+          python -m pytest
+
+  shell:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck nos scripts
+        run: |
+          find . -name '*.sh' -not -path './.git/*' -print0 \
+            | xargs -0 shellcheck -S warning -x

@@ -1,34 +1,33 @@
-# Aula 4 — Serviços Cognitivos & APIs
+# Aula 4 — Serviços de IA da AWS & APIs
 
 ## Objetivos de aprendizagem
 
 Ao final desta aula, você será capaz de:
 
-- Consumir APIs cognitivas prontas da Azure: **Speech-to-Text** (PT-BR), **Language** (sentimento + entidades) e **Vision** (tags + OCR + caption).
-- Provisionar um **Azure AI Services multi-service** (1 endpoint para Speech/Language/Vision) com **custom subdomain** habilitado.
-- Autenticar a Function nas APIs cognitivas via **Managed Identity** (sem chaves no código).
-- Decidir entre **APIs prontas**, **modelos customizados** (Custom Vision, CLU) e **LLMs** (Azure OpenAI) para cada caso de uso.
-- Construir um **pipeline cognitivo end-to-end**: Function lê áudio/imagem do Blob, transcreve/analisa, grava de volta no MongoDB.
+- Consumir APIs de IA prontas da AWS: **Amazon Transcribe** (fala → texto em PT-BR), **Amazon Polly** (texto → fala), **Amazon Comprehend** (sentimento + entidades) e **Amazon Rekognition** (rótulos, objetos e texto em imagens).
+- Explicar por que, na AWS, esses serviços **não precisam de recurso provisionado**: são APIs da conta, autorizadas por IAM.
+- Autenticar uma Lambda nas APIs de IA pela **execution role** (sem chave no código) e ler segredos de terceiros do **Secrets Manager**.
+- Decidir entre **API pronta**, **modelo customizado** (Custom Labels, Comprehend Custom) e **LLM** (Amazon Bedrock) para cada caso de uso.
+- Construir um **pipeline de IA ponta a ponta**: a Lambda lê áudio/imagem do S3, transcreve/analisa e grava o resultado no MongoDB.
 
 ---
 
 ## Por que esta aula importa para um AI Engineer
 
-Os agentes da QC precisam **ouvir**, **ler** e **ver** — não só processar texto. As **APIs cognitivas prontas** dão essas capacidades em minutos, sem treinar nada. A escolha entre pronta/custom/LLM define **custo, latência e qualidade** da experiência conversacional.
+Os agentes da QC precisam **ouvir**, **ler** e **ver** — não só processar texto. As APIs prontas dão essas capacidades em minutos, sem treinar nada. A escolha entre pronta, custom e LLM define **custo, latência e qualidade** da experiência.
 
 ---
 
 ## Conexão com o Quantum Commerce
 
-Esta aula adiciona **3 novas tools** à API da QC (sobre a Function da Aula 3):
+Esta aula adiciona **novas tools** à API da QC:
 
-| Tool | Capacidade cognitiva |
-|------|----------------------|
-| `/transcrever` | Speech-to-Text — transcrever atendimento de voz |
-| `/analisar-reviews` | Language — sentimento + entidades das reviews do MongoDB |
-| `/analisar-imagem` | Vision — tags + OCR das imagens dos produtos |
-
-Os agentes da QC podem agora **ouvir** o cliente, **entender** as reviews e **ver** as imagens dos produtos.
+| Tool | Serviço |
+|------|---------|
+| `/transcrever` | Transcribe — atendimento por voz |
+| `/analisar-reviews` | Comprehend — sentimento + entidades das reviews do MongoDB |
+| `/analisar-imagem` | Rekognition — rótulos + texto das imagens dos produtos |
+| `/tts`, `/stt`, `/visao` | Polly, Transcribe e Rekognition para o front-end |
 
 ---
 
@@ -36,11 +35,13 @@ Os agentes da QC podem agora **ouvir** o cliente, **entender** as reviews e **ve
 
 | Arquivo | Quando usar |
 |---------|-------------|
-| [lab/guia-lab.md](lab/guia-lab.md) | Durante a aula — 4 atividades intercaladas |
-| [lab/terraform/](lab/terraform/) | Código IaC: AI Services + Key Vault + Function + roles |
-| [lab/function/](lab/function/) | Function consolidada (`/health`, `/transcrever`, `/analisar-reviews`, `/analisar-imagem`) |
-| [lab/scripts/](lab/scripts/) | Script opcional de TTS para gerar áudio de teste |
-| [exercicios.md](exercicios.md) | Após a aula — exercícios em 3 níveis (N3 inclui Azure OpenAI + embeddings reais) |
+| [lab/guia-lab.md](lab/guia-lab.md) | Durante a aula — 5 atividades |
+| [lab/terraform/](lab/terraform/) | Bucket + Lambda + Function URL + Secrets Manager + MongoDB na EC2 |
+| [lab/function/](lab/function/) | Lambda com as rotas de IA (Powertools) |
+| [lab/scripts/](lab/scripts/) | `semear_reviews.py` e `gerar_audio_tts.py` (Polly) |
+| [lab/app/](lab/app/) | Front-end Streamlit: Lambda × chamada direta |
+| [lab/exportar-outputs.sh](lab/exportar-outputs.sh) | `source` para recarregar os outputs num terminal novo |
+| [exercicios.md](exercicios.md) | Após a aula — exercícios em 3 níveis |
 
 ## Entrega de grupo
 
@@ -50,7 +51,7 @@ Esta aula gera a **4ª entrega de grupo** (10% da nota): instruções em [entreg
 
 ## Pré-requisitos
 
-- ✅ Conta Azure ativa (Azure for Students com $100 de crédito)
+- ✅ Learner Lab iniciado, CloudShell e Terraform no `$HOME`
 - ✅ Nenhuma dependência das aulas anteriores — **esta aula é autossuficiente**
 
-O Terraform da Aula 4 provisiona tudo do zero: AI Services, Key Vault, Storage, MongoDB (ACI) e Function App.
+> **Amazon Bedrock:** o Learner Lab não libera o Bedrock. Ele aparece aqui como contexto (e nos exercícios de N3); a demonstração com LLM é do professor.

@@ -62,3 +62,14 @@ desktop.ini
 *.log
 tmp/
 .tmp/
+
+# Pacotes gerados pelo Terraform (archive_file)
+.build/
+
+# Pacote da Lambda montado no lab (pip install -t pacote)
+aulas/04-servicos-cognitivos/lab/function/pacote/
+
+# Aula 5 MLOps: tracking e modelo locais
+aulas/05-mlops/lab/mlruns/
+aulas/05-mlops/lab/modelo-local/
+aulas/05-mlops/lab/resposta.json

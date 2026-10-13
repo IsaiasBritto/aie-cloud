@@ -16,9 +16,9 @@ Cada aula contribui com um bloco do projeto integrado. Esses blocos são entregu
 
 | Aula | Contribuição para o projeto |
 |------|------------------------------|
-| 1 | Definir a arquitetura cloud de alto nível (diagrama) e provisionar o resource group base |
+| 1 | Definir a arquitetura cloud de alto nível (diagrama) e provisionar a base na AWS (rede padrão, EC2, tags) |
 | 2 | Provisionar storage e bancos (catálogo, transações, clientes) |
-| 3 | Implantar microserviços/funções do backend (Function HTTP, container) |
+| 3 | Implantar microserviços/funções do backend (Lambda com Function URL, container no ECS Fargate) |
 | 4 | Integrar capacidades cognitivas (busca por imagem, sentimento de reviews, voz) |
 | 5 | Construir pipeline de MLOps para o modelo de recomendação |
 | 6 | Análise FinOps + trabalho assistido no projeto integrado final (entrega ZIP 1 semana depois, 50% da nota — **sem apresentação oral**) |

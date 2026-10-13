@@ -1,399 +1,202 @@
 # Guia de Laboratório — Aula 4
-## Serviços Cognitivos & APIs
+## Serviços de IA da AWS & APIs
 
 **Disciplina:** Cloud & Cognitive Environments
 **MBA:** AI Engineering & Multi-Agents — FIAP
-**Plataforma:** Microsoft Azure (Azure for Students)
-**Ambiente:** **Azure Cloud Shell** — tudo no browser
+**Plataforma:** Amazon Web Services (AWS Academy Learner Lab)
+**Ambiente:** **AWS CloudShell** — tudo no browser · região `us-east-1`
 
 ---
 
 ## Visão geral do lab
 
 ```
-Preparação   — terraform apply (infra autocontida, sem deps de aulas anteriores)  ~10 min
-Atividade 1  — Provisionar recursos e semear MongoDB com reviews QC               ~15 min  (L₁)
-Atividade 2  — Speech-to-Text com áudio gerado via TTS                            ~30 min  (L₂)
-Atividade 3  — Language: pipeline de reviews QC (MongoDB ACI)                     ~30 min  (L₃)
-Atividade 4  — Vision: classificação + OCR de imagem de produto                   ~20 min  (L₄)
-Atividade 5  — Front-end Streamlit: os 4 serviços + comparação de arquitetura     ~30 min  (L₅)
-Wrap-up      — terraform destroy + verificação custo zero                         ~5 min
+Atividade 1  — terraform apply + semear reviews no MongoDB                       ~25 min  (L₁)
+Atividade 2  — Polly (texto → fala) e Transcribe (fala → texto) via Lambda       ~30 min  (L₂)
+Atividade 3  — Comprehend: pipeline de reviews (sentimento + entidades)          ~30 min  (L₃)
+Atividade 4  — Rekognition: rótulos, objetos e texto de imagem de produto        ~20 min  (L₄)
+Atividade 5  — Front-end Streamlit: os serviços + comparação de arquitetura      ~30 min  (L₅)
+Wrap-up      — terraform destroy + verificação de custo                          ~5 min
 ```
 
-> **Nota de região:** Esta aula usa `eastus2` (padrão). Contas **Azure for Students** têm políticas de região — se `eastus2` falhar no `terraform apply`, tente `westeurope`.
+> **Na AWS os serviços de IA não precisam de recurso provisionado:** Transcribe, Polly, Comprehend e Rekognition são APIs da conta, liberadas por IAM. O Terraform sobe só o que é seu: bucket, Lambda, MongoDB e o segredo.
 
-> **Regra de ouro:** `terraform destroy` ao final. AI Services S0 cobra por chamada — sem chamadas = sem custo extra.
+> **Regra de ouro:** `terraform destroy` ao final. Os serviços de IA cobram por chamada — sem chamadas, sem custo; a EC2 do Mongo cobra por hora.
 
 ---
 
-## Preparação (5 min — antes do L₁)
+## Atividade 1 — Provisionar e semear (L₁)
+
+### Passo 1 — Repositório e Terraform
 
 ```bash
-# Clone e atualize o repositório
-cd ~
-git clone https://github.com/isaiasbritto/aie-cloud.git 2>/dev/null || (cd ~/aie-cloud && git pull origin main)
+cd ~ && rm -rf aie-cloud
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud/aulas/04-servicos-cognitivos/lab/terraform
 
-# Confirmar autenticação
-az account show --query "{nome:name, id:id}" -o table
+bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh
+export PATH="$HOME/bin:$PATH" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 
-# Criar pasta de trabalho do grupo
-mkdir -p ~/qc-grupo-NN/aula04
-cd ~/qc-grupo-NN/aula04
-
-# Copiar os arquivos do lab
-LAB=~/aie-cloud/aulas/04-servicos-cognitivos/lab
-
-# ATENÇÃO ao "-T": sem ele, `cp -r origem destino/` copia PARA DENTRO de
-# `destino` quando ela já existe, em vez de substituí-la. Rodar duas vezes
-# produz function/function/, e o zip do deploy sai com tudo duplicado.
-cp -rT $LAB/terraform terraform
-cp -rT $LAB/function  function
-cp -rT $LAB/scripts   scripts
-cp     $LAB/exportar-outputs.sh .
-
-ls
-# terraform/  function/  scripts/  exportar-outputs.sh
-
-# Confirme que NÃO há pasta aninhada (resquício de uma cópia anterior):
-find . -maxdepth 2 -type d -name function -o -maxdepth 2 -type d -name terraform
-
-cd terraform
-code .
-```
-
-> **Se você já criou a pasta antes desta versão do guia**, o
-> `exportar-outputs.sh` não está lá. Copie só ele:
->
-> ```bash
-> cp ~/aie-cloud/aulas/04-servicos-cognitivos/lab/exportar-outputs.sh ~/qc-grupo-NN/aula04/
-> ```
-
----
-
-## Atividade 1 — Provisionar Infraestrutura (Autocontida)
-
-**Objetivo:** Criar todos os recursos da Aula 4 com um único `terraform apply`.
-Inclui: AI Services, Key Vault, Storage, MongoDB via ACI, e Function App.
-
-### Por que ACI em vez de VM para MongoDB?
-
-Azure Container Instances é mais simples, mais rápido (inicialização em ~2 min), e evita problemas de capacidade de SKU de VM que ocorrem em algumas regiões com contas Azure for Students.
-
-### Passo 1 — Aplicar Terraform
-
-```bash
-cd ~/qc-grupo-NN/aula04/terraform
 terraform init
 terraform apply -auto-approve
 ```
 
-Tempo: ~5-8 min. Observe os recursos sendo criados no portal Azure em paralelo.
+Enquanto o Terraform trabalha (~3 min), leia os arquivos:
 
-### Passo 2 — Exportar outputs
+| Arquivo | O que define |
+|---------|--------------|
+| [main.tf](terraform/main.tf) | Providers, tags, locals (credenciais Mongo), data source da LabRole |
+| [variables.tf](terraform/variables.tf) | `region` (padrão `us-east-1`) |
+| [outputs.tf](terraform/outputs.tf) | Todos os outputs consumidos pelo guia e pelos scripts |
+| [storage.tf](terraform/storage.tf) | Bucket de dados + prefixos `audios/` e `imagens/` |
+| [lambda.tf](terraform/lambda.tf) | Lambda Python 3.12 + Function URL + LabRole (timeout 60 s) |
+| (nenhum) | Nada a criar: Transcribe, Polly, Comprehend e Rekognition são APIs da conta |
+| [secrets.tf](terraform/secrets.tf) | Secrets Manager com as credenciais do Mongo |
+| [mongodb.tf](terraform/mongodb.tf) | EC2 com Docker: MongoDB 7.0 + Mongo Express 1.0.2 |
+
+### Passo 2 — Exportar os outputs
 
 ```bash
-cd ~/qc-grupo-NN/aula04
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab
 source exportar-outputs.sh
 ```
 
-Ele imprime todos os valores. Qualquer campo `VAZIO` significa que o `apply` não
-completou — resolva antes de seguir.
+> Abriu um terminal novo? Rode `source exportar-outputs.sh` de novo — as variáveis não sobrevivem à sessão.
 
-> **Repita este comando sempre que abrir um terminal novo.** O Cloud Shell
-> encerra a sessão após 20 min de inatividade e todos os exports somem junto. Os
-> erros que aparecem depois não dizem isso:
->
-> | Variável vazia | Erro que você vê |
-> |---|---|
-> | `KEY_VAULT_NAME` | `az`: `URL has an invalid label` |
-> | `MONGO_IP` | o script Python pede o IP e encerra |
-> | `AI_ENDPOINT` | erro de conexão, sem explicação |
->
-> **Tem que ser `source`, não `bash`.** Script executado com `bash` roda em outro
-> processo, e as variáveis morrem com ele.
-
-### Passo 3 — Conferir o que foi provisionado
-
-No portal Azure → Resource Group `rg-qc-aula04-*`:
-
-- 2 × Storage Account (Function runtime + dados do lab)
-- 1 × App Service Plan (**FC1 — Flex Consumption**)
-- 1 × **Cognitive Services** (multi-service S0 com custom subdomain)
-- 1 × **Key Vault** (com segredo `ai-services-key`)
-- 1 × **Container Registry** (Basic) + 1 × Managed Identity user-assigned
-- 1 × **Container Group ACI** (MongoDB 7.0 + Mongo Express)
-- 1 × **Function App** (Python 3.12, Managed Identity SystemAssigned)
-
-> **Por que o lab cria um Container Registry:** o ACI puxa a imagem por IPs de
-> saída **compartilhados da região**, e o Docker Hub limita pulls anônimos a 100
-> por 6 h por IP. Quando a turma roda junto, esse limite estoura e o `apply`
-> falha com `409 RegistryErrorResponse` — um erro que não diz nada sobre cota de
-> terceiros. Com um ACR próprio, o pull sai pelo backbone da Azure.
->
-> O `terraform apply` faz tudo: cria o registry, importa `mongo` e
-> `mongo-express` com `az acr import`, e o ACI autentica por Managed Identity
-> (`AcrPull`) — sem usuário nem senha em lugar nenhum.
->
-> Repare no `mongodb.tf`: é o mesmo raciocínio de identidade da Function, só que
-> aplicado a puxar imagem em vez de ler segredo.
-
-> **Por que FC1 e não o Y1 clássico:** contas Azure for Students têm cota **zero**
-> do plano Y1, e o erro que a Azure devolve é um `401 Unauthorized` — que parece
-> problema de autenticação, mas a mensagem diz `Current Limit (Y1 VMs): 0`. O Y1
-> também está sendo aposentado em set/2028. FC1 é o sucessor, o mesmo usado na
-> Aula 3.
-
-Em `cognitive.tf`, observe **`custom_subdomain_name`** — é o que permite Managed Identity autenticar no AI Services.
-
-### Passo 4 — Semear reviews no MongoDB
+### Passo 3 — Semear reviews no MongoDB
 
 ```bash
-cd ~/qc-grupo-NN/aula04
 pip install --user pymongo -q
 
-# Se você abriu um terminal novo desde o Passo 2, recarregue os outputs:
-#   source exportar-outputs.sh
-echo "MONGO_IP=${MONGO_IP:-VAZIO}"
+# Obtém o IP do Mongo DB (o exportar-outputs.sh já fez isso)
+export MONGO_IP=$(cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform && terraform output -raw mongodb_public_ip)
+echo "IP do Mongo: $MONGO_IP"
 
+# Execução do script (confira o diretório atual: lab/)
 python3 scripts/semear_reviews.py
 ```
 
-> **Se der timeout de conexão**, o ACI ainda está subindo — o MongoDB leva cerca
-> de um minuto depois do `apply`. Espere e repita.
+Abra o Mongo Express (`http://$MONGO_IP:8081`, usuário `qcadmin`, senha `QCview2024!`) → `qc-db` → `reviews`.
 
-Saída esperada:
-```
-✓ MongoDB pronto!
-✓ 10 reviews inseridas em qc-db.reviews
-```
+> **Você identificou alguma falha de segurança no `semear_reviews.py`? Como consertar?** (compare com a Lambda, que lê a mesma conexão do Secrets Manager)
 
-Abra **`http://<MONGO_IP>:8081`** no browser — abre direto, sem login. Navegue até `qc-db → reviews` para ver os documentos.
-
-**✅ Checkpoint L₁:** 10 reviews visíveis no Mongo Express?
+**✅ Checkpoint L₁:** 10 reviews em `qc-db.reviews`?
 
 ---
 
-## Atividade 2 — Speech-to-Text
+## Atividade 2 — Texto → fala e fala → texto (L₂)
 
-**Objetivo:** Gerar um áudio em PT-BR via TTS e transcrevê-lo com Azure Speech STT.
-
-### Passo 1 — Exportar a chave do AI Services
+### Passo 1 — Gerar um áudio com o Amazon Polly
 
 ```bash
-export AI_KEY=$(az keyvault secret show \
-  --vault-name "$KEY_VAULT_NAME" \
-  --name ai-services-key \
-  --query value -o tsv)
+pip install --user boto3 -q
 
-echo "AI_KEY exportado (${#AI_KEY} chars)"
+# Sem chave: o boto3 usa a credencial do CloudShell (LabRole)
+aws sts get-caller-identity --query Arn --output text
+
+python3 scripts/gerar_audio_tts.py      # → /tmp/audio-teste.mp3
 ```
 
-### Passo 2 — Gerar áudio via TTS
+### Passo 2 — Copiar os áudios para o bucket
 
 ```bash
-cd ~/qc-grupo-NN/aula04
-pip install --user requests -q
+echo "Data Bucket: $DATA_BUCKET"
 
-python3 scripts/gerar_audio_tts.py
-# Saída: /tmp/audio-teste.wav
+aws s3 cp /tmp/audio-teste.mp3 s3://$DATA_BUCKET/audios/audio-teste.mp3
+
+# Um trecho real de podcast da BBC Brasil (já no repositório)
+aws s3 cp ~/aie-cloud/aulas/04-servicos-cognitivos/lab/data/bbc_exemplo.mp3 \
+  s3://$DATA_BUCKET/audios/bbc_exemplo.mp3
 ```
 
-**Confira o áudio antes de seguir.** Se o TTS gerar um arquivo vazio ou truncado,
-o problema só vai aparecer na transcrição — e a suspeita recai sobre o STT, que
-não tem culpa nenhuma.
+> **Challenge:** o formato do áudio vem da extensão do arquivo. E com um `.m4a`?
+
+### Passo 3 — Deploy da Lambda
 
 ```bash
-ls -la /tmp/audio-teste.wav   # esperado: ~100-300 KB, nunca 0
-file  /tmp/audio-teste.wav    # esperado: RIFF (little-endian) data, WAVE audio
+echo "Lambda: $FUNC_NAME"
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/function
+
+# Empacota COM as dependências (a Lambda não instala o requirements.txt sozinha).
+# Os flags baixam pacotes compilados para o Python 3.12 da Lambda — o CloudShell tem outro Python.
+rm -rf pacote && mkdir pacote
+pip install -r requirements.txt -t pacote -q \
+  --platform manylinux2014_x86_64 --python-version 3.12 --only-binary=:all:
+cp function_app.py pacote/
+(cd pacote && zip -qr /tmp/function.zip .)
+aws lambda update-function-code --function-name "$FUNC_NAME" --zip-file fileb:///tmp/function.zip
+aws lambda wait function-updated --function-name "$FUNC_NAME"
 ```
 
-Para **ouvir**, baixe com o comando embutido do Cloud Shell. Repare na cópia
-para o `$HOME` antes — o `download` **não alcança `/tmp`**, e falha com
-`{"error":{"message":"Unable to download file","code":"FileDownloadError"}}`
-mesmo com o arquivo existindo:
+Explore o [function_app.py](function/function_app.py): as rotas `health` e `transcrever` (Lab 2), `analisar-reviews` (Lab 3) e `analisar-imagem` (Lab 4).
+
+### Passo 4 — Transcrever
 
 ```bash
-cp /tmp/audio-teste.wav ~/
-download ~/audio-teste.wav
+curl -s "${FUNC_URL}health" | python3 -m json.tool
+
+curl -s -X POST "${FUNC_URL}transcrever?arquivo=audio-teste.mp3&idioma=pt-BR" | python3 -m json.tool
+curl -s -X POST "${FUNC_URL}transcrever?arquivo=bbc_exemplo.mp3" | python3 -m json.tool
 ```
 
-> **`/tmp` é efêmero.** O Cloud Shell descarta o container quando a sessão
-> encerra, e o `/tmp` vai junto. Se voltar depois e o arquivo tiver sumido, é só
-> rodar o script de novo — leva segundos. Só o `~/clouddrive` persiste entre
-> sessões; o `$HOME` **não**.
+O Transcribe é **assíncrono**: a rota inicia um job e espera ele terminar (áudios curtos levam ~10-20 s). Áudio longo devolve `IN_PROGRESS` com o nome do job — consulte depois com `aws transcribe get-transcription-job`.
 
-### Passo 3 — Upload do áudio para Blob
+> ⚠️ **Esperado, não é falha:** a primeira chamada leva ~1-2 s a mais (cold start).
 
-```bash
-az storage blob upload \
-  --account-name "$DATA_STORAGE" \
-  --container-name audios \
-  --name audio-teste.wav \
-  --file /tmp/audio-teste.wav \
-  --auth-mode login \
-  --overwrite \
-  && echo "✓ audio-teste.wav no container 'audios'"
-```
-
-### Passo 4 — Deploy da Function App
-
-```bash
-cd ~/qc-grupo-NN/aula04/function
-
-# Empacotar e publicar (remote build instala o requirements.txt no Azure).
-# O "rm" evita empacotar sobras de uma tentativa anterior dentro do mesmo zip.
-rm -f /tmp/function.zip
-zip -r /tmp/function.zip . -x "function/*"
-
-az functionapp deployment source config-zip \
-  --resource-group $(cd ../terraform && terraform output -raw resource_group_name) \
-  --name "$FUNC_NAME" \
-  --src /tmp/function.zip \
-  --build-remote true \
-  --timeout 300
-```
-
-Tempo: ~3-5 min. O Azure instala os pacotes do `requirements.txt` no servidor — não é necessário ter nada instalado localmente.
-
-> **Testar pelo portal, como alternativa ao `curl`:** Function App → **Funções**
-> → escolha a função → **Código + Teste** → **Testar/Executar**. Preencha os
-> parâmetros de consulta (para `analisar_reviews`: método `POST`, `limit` = `10`)
-> e veja o resultado na aba **Saída**.
->
-> Vale conhecer os dois caminhos: quando o `curl` falha, testar pelo portal
-> separa "problema na Function" de "problema no seu terminal".
->
-> Se o portal responder `{"message":"Failed to fetch"}`, é **CORS** — erro do
-> navegador, não da Function. O `terraform` já libera `portal.azure.com`, mas se
-> seu ambiente foi criado antes dessa correção:
->
-> ```bash
-> RG=$(cd ~/qc-grupo-NN/aula04/terraform && terraform output -raw resource_group_name)
-> az functionapp cors add -g "$RG" -n "$FUNC_NAME" --allowed-origins https://portal.azure.com
-> ```
-
-### Passo 5 — Testar STT
-
-```bash
-# Aguardar cold start da Function
-until curl -s -o /dev/null -w "%{http_code}" "$FUNC_HOSTNAME/api/health" | grep -q "200"; do
-  echo "aguardando..."; sleep 5; done
-echo "Function online!"
-
-# Transcrever
-curl -s "$FUNC_HOSTNAME/api/transcrever?blob=audio-teste.wav&idioma=pt-BR" | python3 -m json.tool
-```
-
-Esperado:
-```json
-{
-  "transcricao": "A Quantum Commerce é uma plataforma de e-commerce que opera em doze países...",
-  "idioma": "pt-BR",
-  "status_stt": "Success"
-}
-```
-
-> **Por que chave para Speech e MI para Language/Vision?** O endpoint de Speech STT exige a role `Cognitive Services Speech User` separada para AAD/MI. Para evitar complexidade extra, a aula usa a chave (armazenada no Key Vault e lida pela Function via KV reference) para o Speech, e MI para os demais serviços.
-
-**✅ Checkpoint L₂:** Transcrição retornou texto coerente em PT-BR?
+**✅ Checkpoint L₂:** a transcrição do `audio-teste.mp3` volta em português?
 
 ---
 
-## Atividade 3 — Language: Pipeline de Reviews
+## Atividade 3 — Comprehend: pipeline de reviews (L₃)
 
-**Objetivo:** Analisar sentimento e entidades das reviews do MongoDB com Azure Language via Managed Identity.
-
-### Passo 1 — Chamar a rota `/analisar-reviews`
+### Passo 1 — Analisar as reviews
 
 ```bash
-curl -s -X POST "$FUNC_HOSTNAME/api/analisar-reviews?limit=10" | python3 -m json.tool
+echo "URL para avaliar reviews: ${FUNC_URL}analisar-reviews?limit=10"
+curl -s -X POST "${FUNC_URL}analisar-reviews?limit=10" | python3 -m json.tool
 ```
 
-Esperado:
-```json
-{
-  "total_analisadas": 10,
-  "positivas": 6,
-  "negativas": 4,
-  "neutras": 0,
-  "exemplos": [...]
-}
-```
+A rota lê do MongoDB as reviews **sem** o campo `sentimento` (filtro `{"sentimento": {"$exists": false}}` — evita reprocessar e pagar de novo), roda `batch_detect_sentiment` e `batch_detect_entities` do Comprehend em lotes de até 25, e grava o resultado de volta em cada documento.
 
-> **Nota de batch:** A API de Language aceita no máximo **5 documentos por chamada** no tier S0. O código divide em batches de 5 automaticamente.
+Rode de novo: a resposta é "Nenhuma review nova para analisar" — o filtro funcionou.
 
 ### Passo 2 — Validar no Mongo Express
 
-Abra `http://<MONGO_IP>:8081` → `qc-db → reviews`. Cada review agora tem os campos:
-- `sentimento_label`: `"positive"` / `"negative"` / `"neutral"`
-- `sentimento_score`: `{"positive": 0.98, "neutral": 0.01, "negative": 0.01}`
-- `entidades`: `[{"text": "Quantum Commerce", "category": "Organization"}, ...]`
+`qc-db` → `reviews`: cada documento ganhou `sentimento`, `sentimento_score` e `entidades`.
 
-> Segunda chamada retorna `"msg": "Nenhuma review nova para analisar. Todas já processadas."` — comportamento idempotente correto.
-
-**✅ Checkpoint L₃:** Reviews enriquecidas com sentimento e entidades no Mongo Express?
+**✅ Checkpoint L₃:** a distribuição de sentimentos bate com as estrelas das reviews?
 
 ---
 
-## Atividade 4 — Vision: Classificação + OCR
+## Atividade 4 — Rekognition: imagem de produto (L₄)
 
-**Objetivo:** Analisar uma imagem de produto com Azure AI Vision 4.0 via Managed Identity.
-
-### Passo 1 — Upload de imagem de produto
+### Passo 1 — Upload da imagem
 
 ```bash
-# Baixar uma imagem de produto (JPG/PNG)
-curl -sL "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=800" \
-  -o /tmp/produto.jpg 2>/dev/null || \
-  echo "Use o botão de upload do Cloud Shell para enviar uma imagem do seu computador"
-
-# Upload para Blob
-az storage blob upload \
-  --account-name "$DATA_STORAGE" \
-  --container-name imagens \
-  --name produto.jpg \
-  --file /tmp/produto.jpg \
-  --auth-mode login \
-  --overwrite \
-  && echo "✓ produto.jpg no container 'imagens'"
+aws s3 cp ~/aie-cloud/aulas/04-servicos-cognitivos/lab/data/produto.jpg \
+  s3://$DATA_BUCKET/imagens/produto.jpg
 ```
 
-### Passo 2 — Testar Vision
+### Passo 2 — Analisar
 
 ```bash
-curl -s "$FUNC_HOSTNAME/api/analisar-imagem?blob=produto.jpg" | python3 -m json.tool
+echo "URL para analisar imagem: ${FUNC_URL}analisar-imagem?arquivo=produto.jpg"
+curl -s "${FUNC_URL}analisar-imagem?arquivo=produto.jpg" | python3 -m json.tool
 ```
 
-Esperado:
-```json
-{
-  "caption": "",
-  "tags": [
-    {"name": "furniture", "confidence": 0.982},
-    {"name": "chair", "confidence": 0.967}
-  ],
-  "texto_extraido": "",
-  "objetos_detectados": [{"label": "chair", "box": {"x": 10, "y": 5, "w": 200, "h": 300}}],
-  "blob": "produto.jpg"
-}
-```
+A resposta traz `tags` (rótulos com confiança), `objetos` (rótulos com caixa — em proporção da imagem, de 0 a 1) e `texto` (o que o Rekognition leu na imagem).
 
-> **Nota sobre Caption:** O recurso `Caption` da Vision 4.0 não está disponível em `eastus2`. Para Caption/Dense Captions, use `eastus`, `westus2`, ou `westeurope` (verifique a política de região da sua conta Azure for Students).
-
-**✅ Checkpoint L₄:** Imagem analisada com tags retornadas?
+**✅ Checkpoint L₄:** o Rekognition reconheceu o produto e leu o texto da imagem?
 
 ---
 
 ## Atividade 5 — Front-end: QC Cognitive Studio (~30 min)
 
-**Objetivo:** sair do `curl` e ver os quatro serviços funcionando numa interface
-— e, no caminho, comparar **duas arquiteturas de acesso à IA** que produzem o
-mesmo resultado com riscos completamente diferentes.
+**Objetivo:** sair do `curl` e ver os serviços numa interface — e comparar **duas arquiteturas de acesso à IA** com o mesmo resultado e riscos completamente diferentes.
 
 ### Passo 1 — Rodar na SUA máquina
 
-Não é no Cloud Shell. O navegador só libera o microfone em `localhost` ou HTTPS,
-e o Cloud Shell não oferece nenhum dos dois.
+Não é no CloudShell: o navegador só libera o microfone em `localhost` ou HTTPS.
 
 ```bash
 # no seu notebook, dentro do repositório clonado
@@ -406,105 +209,52 @@ Abre em `http://localhost:8501`.
 
 ### Passo 2 — Preencher a barra lateral
 
-No Cloud Shell, colete os valores:
+**Comece preenchendo só a Function URL** (`echo $FUNC_URL` no CloudShell), escolha **Via Lambda** e use as três primeiras abas. Elas funcionam sem nenhuma credencial no seu notebook — essa é a demonstração.
 
-```bash
-cd ~/qc-grupo-NN/aula04
-source exportar-outputs.sh
-
-echo "FUNC_HOSTNAME : $FUNC_HOSTNAME"
-echo "AI_ENDPOINT   : $AI_ENDPOINT"
-echo "AI_REGION     : $AI_REGION"
-echo "AI_KEY        : $(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-                          --name ai-services-key --query value -o tsv)"
-```
-
-**Comece preenchendo só o Function App.** Deixe `AI_ENDPOINT` e `AI_KEY` em
-branco, escolha **Via Function App** e use as três primeiras abas normalmente.
-Elas funcionam. Isso é a demonstração: o cliente não tem credencial nenhuma.
-
-Só depois preencha a chave e experimente **Comparar os dois**.
+Só depois preencha as credenciais (Learner Lab → **AWS Details** → **AWS CLI: Show**) e o `DATA_BUCKET`, e experimente **Comparar os dois**.
 
 ### Passo 3 — Explorar
 
 | Aba | O que fazer |
 |---|---|
-| 🔊 Texto → Fala | Sintetize uma frase. Baixe o WAV — ele serve de entrada para a aba seguinte |
-| 🎤 Fala → Texto | Grave do microfone ou envie o WAV baixado |
-| 🖼️ Visão + Espacial | Envie uma foto de produto. Veja tags, OCR e as caixas desenhadas sobre a imagem |
+| 🔊 Texto → Fala | Sintetize uma frase com o Polly. Baixe o WAV — ele serve de entrada para a próxima aba |
+| 🎤 Fala → Texto | Grave do microfone ou envie o WAV baixado (o Transcribe processa em lote: aguarde) |
+| 🖼️ Visão + Espacial | Envie uma foto de produto: rótulos, texto e caixas desenhadas sobre a imagem |
 | 🏛️ Arquitetura | A comparação e as perguntas de discussão |
-
-> **Se a transcrição do microfone vier vazia com `200 OK`:** o Speech REST aceita
-> **WAV PCM 16 kHz mono**, e a gravação do navegador costuma sair em WebM/Opus. É
-> falha silenciosa, não erro. Teste com o WAV da aba de TTS para separar
-> "formato errado" de "serviço não funciona" — esse diagnóstico é metade do
-> exercício.
 
 ### Passo 4 — Comparar (10 min, em grupo)
 
-Marque **Comparar os dois** e rode a mesma operação. Os resultados são iguais; os
-tempos, não. O caminho direto é mais rápido — tem um salto a menos.
+Marque **Comparar os dois**. Os resultados são iguais; os tempos, não — o caminho direto tem um salto a menos.
 
-**A pergunta que fecha a aula:** se o caminho direto é mais rápido e mais simples,
-por que a arquitetura da disciplina insiste no outro?
+**A pergunta que fecha a aula:** se o caminho direto é mais rápido e mais simples, por que a arquitetura da disciplina insiste no outro? Discuta com a tabela da aba **Arquitetura**.
 
-Discuta com a tabela da aba **Arquitetura** à vista:
-
-1. Este app roda no seu notebook. Se virasse uma página web pública, o caminho
-   direto continuaria possível? O que aconteceria com a chave dentro do
-   JavaScript entregue ao navegador?
-2. A Function usa Managed Identity para Vision e **chave** para Speech. Por que a
-   diferença? (dica: a role `Cognitive Services Speech User`)
-3. Um aluno commita o projeto no GitHub com a chave preenchida. Remover o arquivo
-   e commitar de novo resolve?
-
-**✅ Checkpoint L₅:** As três primeiras abas funcionam com `AI_KEY` em branco?
-Você consegue explicar por quê?
+**✅ Checkpoint L₅:** as três primeiras abas funcionam com as credenciais em branco? Você consegue explicar por quê?
 
 ---
 
-## Wrap-up — Destroy e Custo Zero (5 min)
-
-### Passo 1 — Destruir todos os recursos da Aula 4
+## Wrap-up — Destroy e custo zero (5 min)
 
 ```bash
-cd ~/qc-grupo-NN/aula04/terraform
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform
 terraform destroy -auto-approve
 ```
 
-Tempo: ~2-3 min. Todos os 17 recursos são destruídos.
-
-### Passo 2 — Commitar no repo do grupo
-
-```bash
-cd ~/qc-grupo-NN
-git add aula04/
-git commit -m "feat(aula04): pipeline cognitivo QC (Speech + Language + Vision)"
-git push origin main
-```
-
-### Passo 3 — Verificar custo
-
-Portal → **Cost Management** → filtrar por tag `aula=4`.
-Esperado: < R$1 (AI Services S0 só cobra por chamadas; as poucas chamadas do lab custam centavos).
+Confira o crédito consumido na página do Learner Lab. Os jobs do Transcribe ficam listados no console por 90 dias, mas não cobram nada depois de concluídos.
 
 ---
 
-## Conexão com o Projeto Quantum Commerce
+## Conexão com o projeto Quantum Commerce
 
-A Function da QC agora tem **4 tools cognitivas**:
+A Lambda da QC agora tem **tools de IA**:
 
 ```
-GET  /api/health                    ← status e roteamento
-GET  /api/transcrever?blob=...      ← STT em PT-BR (atendimento por voz)
-POST /api/analisar-reviews?limit=N  ← Language (sentimento de reviews)
-GET  /api/analisar-imagem?blob=...  ← Vision (busca visual de produtos)
+GET  /health                              ← status
+POST /transcrever?arquivo=...&idioma=...  ← Transcribe (atendimento por voz)
+POST /analisar-reviews?limit=N            ← Comprehend (sentimento das reviews)
+GET  /analisar-imagem?arquivo=...         ← Rekognition (busca visual de produtos)
 ```
 
-Os agentes podem agora:
-- Ouvir o cliente no atendimento por voz → `transcrever`
-- Entender o sentimento das reviews para recomendar produtos → `analisar-reviews`
-- Analisar a imagem que o cliente enviou para encontrar o produto → `analisar-imagem`
+Os agentes podem: ouvir o cliente no atendimento por voz, entender o sentimento das reviews para recomendar produtos e analisar a foto que o cliente enviou para achar o produto.
 
 ---
 
@@ -512,41 +262,35 @@ Os agentes podem agora:
 
 | Problema | Causa | Solução |
 |----------|-------|---------|
-| `RequestDisallowedByAzure` no `terraform apply` | Política de região da conta Azure for Students | Tentar outra região: `terraform apply -auto-approve -var="location=westeurope"` |
-| `SkuNotAvailable` | Capacidade esgotada na região | Já resolvido: usamos ACI em vez de VM para MongoDB |
-| Speech 401 em `/transcrever` | `AI_KEY` não resolvido (KV reference falhou) | Verificar se a Function tem a role `Key Vault Secrets User` — `terraform output` e portal → Function → Identity |
-| Language batch error | Limite de 5 docs/batch no tier S0 | Já corrigido no código com loop de batches de 5 |
-| Vision `Caption` não disponível | Caption não suportado em `eastus2` | Já removido do código — usar Tags + OCR. Para Caption: `westeurope` |
-| `/analisar-reviews` "Nenhuma review nova" | Todas já analisadas | Correto — rodar `semear_reviews.py` novamente para reinserir |
-| MongoDB não responde no semear | ACI ainda iniciando | Aguardar 2-3 min após `terraform apply`; o script tenta automaticamente 10x |
-| Function 404 após deploy | Build remoto não concluído | Aguardar cold start (~3-5 min); verificar se `--build-remote true` foi usado |
-| `az storage blob upload` retorna 403 | Role RBAC ainda propagando | Aguardar 1-2 min e tentar novamente |
+| `{"status": "placeholder"}` em qualquer rota | O código real ainda não foi publicado | Passo 3 da Atividade 2 |
+| `Runtime.ImportModuleError: No module named 'aws_lambda_powertools'` | O zip foi feito sem as dependências | Refaça o Passo 3 (pasta `pacote/` com `pip install -t`) |
+| `403 Forbidden` na Function URL | Falta uma das duas permissões da URL pública | `terraform apply` de novo; `aws lambda get-policy --function-name "$FUNC_NAME"` |
+| `/transcrever` → `BadRequestException ... media format` | Extensão diferente do formato real do áudio | Renomeie o arquivo ou converta |
+| `/transcrever` → `IN_PROGRESS` | Áudio longo para os 60 s da Lambda | `aws transcribe get-transcription-job --transcription-job-name <job>` |
+| `/analisar-reviews` → `ServerSelectionTimeoutError` | EC2 do Mongo ainda subindo | Aguarde 2-3 min após o apply |
+| `/analisar-reviews` → "Nenhuma review nova" | Todas já analisadas | Correto — rode `semear_reviews.py` para reinserir |
+| `semear_reviews.py` não conecta | `MONGO_IP` vazio | `source exportar-outputs.sh` |
+| `AccessDeniedException` no Comprehend/Rekognition | Sessão do Learner Lab expirou | **Start Lab** e CloudShell novo |
+| Mongo Express pede senha | Basic auth ligado de propósito | `qcadmin` / `QCview2024!` |
 
 ---
 
-## Tarefa Pós-Aula
+## Tarefa pós-aula
 
-Antes da Aula 5:
-
-1. **Commitar `aula04/` no repo do grupo**
-2. **Atualizar `entrega-grupo-aula04.md`** com:
-   - Trecho da transcrição obtida em PT-BR
-   - Distribuição de sentimentos das 10 reviews (positivas / negativas / neutras)
-   - JSON de saída de uma análise de imagem de produto da QC
-   - Diagrama atualizado da arquitetura QC com a camada cognitiva
-3. **Resolver pelo menos N1 + N2** dos exercícios
+1. Atualizar o `entrega-grupo-aula04.md` com:
+   - Trecho da transcrição em PT-BR
+   - Distribuição de sentimentos das 10 reviews
+   - JSON de uma análise de imagem de produto
+   - Diagrama da arquitetura QC com a camada de IA
+2. Resolver pelo menos N1 + N2 dos exercícios
 
 ---
 
 ## Referências
 
-- [Azure AI Services — autenticação com Entra ID](https://learn.microsoft.com/azure/ai-services/authentication?tabs=powershell)
-- [Speech REST API — STT](https://learn.microsoft.com/azure/ai-services/speech-service/rest-speech-to-text)
-- [Language SDK Python](https://learn.microsoft.com/python/api/overview/azure/ai-textanalytics-readme)
-- [Image Analysis SDK 4.0](https://learn.microsoft.com/azure/ai-services/computer-vision/how-to/call-analyze-image-40)
-- [Custom subdomain — requisito para MI](https://learn.microsoft.com/azure/ai-services/cognitive-services-custom-subdomains)
-- [Azure Container Instances — múltiplos containers](https://learn.microsoft.com/azure/container-instances/container-instances-multi-container-yaml)
-
----
-
-*Lab validado em 21/06/2026 — região eastus2, Azure for Students | Cloud & Cognitive Environments | Aula 4*
+- [Amazon Transcribe — jobs em lote](https://docs.aws.amazon.com/transcribe/latest/dg/batch-med-transcription.html)
+- [Amazon Polly — vozes disponíveis](https://docs.aws.amazon.com/polly/latest/dg/available-voices.html)
+- [Amazon Comprehend — idiomas suportados](https://docs.aws.amazon.com/comprehend/latest/dg/supported-languages.html)
+- [Amazon Rekognition — rótulos e texto](https://docs.aws.amazon.com/rekognition/latest/dg/labels.html)
+- [Powertools for AWS Lambda (Python) — Event Handler](https://docs.powertools.aws.dev/lambda/python/latest/core/event_handler/api_gateway/)
+- [Pacotes .zip de Lambda com dependências](https://docs.aws.amazon.com/lambda/latest/dg/python-package.html)

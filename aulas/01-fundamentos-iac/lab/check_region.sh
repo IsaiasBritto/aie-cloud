@@ -1,23 +1,19 @@
-echo "Verificando regions com VM para sua conta ..."
+#!/usr/bin/env bash
+# Confere em quais regiões o tipo de instância do lab está disponível.
+# No AWS Academy Learner Lab só us-east-1 e us-west-2 são liberadas.
+# Uso: bash check_region.sh [tipo]   (padrão: t3.micro)
+TIPO="${1:-t3.micro}"
+REGIOES="us-east-1 us-west-2"
 
-regions="eastus eastus2 westus westus2 westus3 centralus northcentralus southcentralus brazilsouth canadacentral canadaeast uksouth ukwest westeurope northeurope francecentral germanywestcentral swedencentral norwayeast"
-
-check_region() {
-  region="$1"
-
-  result=$(az vm list-skus \
-    --location "$region" \
-    --size Standard_D2s_v3 \
-    --query "[?restrictions[?type=='Location']].restrictions" \
-    -o tsv 2>/dev/null)
-
-  if [ -z "$result" ]; then
-    echo "VM Standard_D2s_v3 disponível: $region"
+echo "Verificando ${TIPO} nas regiões do Learner Lab..."
+for r in $REGIOES; do
+  zonas=$(aws ec2 describe-instance-type-offerings \
+    --region "$r" --location-type availability-zone \
+    --filters "Name=instance-type,Values=${TIPO}" \
+    --query "InstanceTypeOfferings[].Location" --output text 2>/dev/null)
+  if [ -n "$zonas" ]; then
+    echo "✓ ${TIPO} disponível em ${r}: ${zonas}"
   else
-    echo "VM Standard_D2s_v3 indisponível: $region"
+    echo "✗ ${TIPO} indisponível (ou sem permissão) em ${r}"
   fi
-}
-
-export -f check_region
-
-printf "%s\n" $regions | xargs -n 1 -P 6 bash -c 'check_region "$0"'
+done

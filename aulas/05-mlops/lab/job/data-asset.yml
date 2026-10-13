@@ -1,9 +1,0 @@
-$schema: https://azuremlschemas.azureedge.net/latest/data.schema.json
-name: produtos-qc
-version: "1"
-description: Catálogo de produtos da Quantum Commerce (20 SKUs)
-type: uri_file
-# Caminho dentro do datastore default do Workspace.
-# Faça o upload do produtos.csv para este caminho antes de criar o data asset
-# (ver guia-lab.md, Atividade 3 Parte A).
-path: azureml://datastores/workspaceblobstore/paths/aula05/produtos.csv

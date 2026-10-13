@@ -1,61 +1,30 @@
 # Terraform — Aula 4
 
-Código IaC para provisionar a **camada cognitiva** da Quantum Commerce — totalmente autocontido, sem dependência das aulas anteriores:
-
-- **Azure AI Services multi-service (S0)** — 1 endpoint para Speech, Language e Vision, com `custom_subdomain_name` habilitado (pré-requisito para Managed Identity).
-- **Key Vault** — armazena a chave do AI Services; a Function lê via Key Vault reference sem expor a chave no código.
-- **Storage Account** (`stdata04*`) — containers `audios` e `imagens` para os arquivos do lab.
-- **MongoDB via ACI** — container group com `mongo:7.0` + `mongo-express:1.0.2`; Mongo Express disponível em `http://<IP>:8081`.
-- **Function App** Python 3.11 (Consumption Y1) com Managed Identity SystemAssigned.
-- **Roles** na Function: `Key Vault Secrets User` (lê o AI_KEY) + `Cognitive Services User` (Language e Vision) + `Storage Blob Data Contributor` (áudios e imagens).
-
-## Como usar (no Azure Cloud Shell)
-
-```bash
-cd ~/qc-grupo-NN/aula04/terraform
-
-terraform init
-terraform apply -auto-approve
-```
-
-Tempo: ~5-8 min (ACI + AI Services demoram mais).
-
-## Outputs principais
-
-```bash
-terraform output -raw function_app_hostname    # URL da Function
-terraform output -raw mongodb_public_ip        # IP do MongoDB ACI
-terraform output -raw mongo_express_url        # http://<IP>:8081
-terraform output -raw data_storage_account_name
-terraform output -raw key_vault_name
-# (mongodb_connection_string é sensitive — use: terraform output mongodb_connection_string)
-```
-
-## Destroy
-
-```bash
-terraform destroy -auto-approve
-```
-
-Tempo: ~2-3 min. Todos os recursos da Aula 4 são destruídos. Nenhum recurso externo é afetado.
-
-## Arquivos
-
 | Arquivo | O que define |
 |---------|--------------|
-| [main.tf](main.tf) | Providers, RG, locals (tags + credenciais Mongo), data source de identidade |
-| [variables.tf](variables.tf) | `location` (default: `eastus2`) |
-| [outputs.tf](outputs.tf) | Todos os outputs consumidos pelo guia e pelos scripts |
-| [cognitive.tf](cognitive.tf) | Azure AI Services multi-service (Speech, Language, Vision) |
-| [keyvault.tf](keyvault.tf) | Key Vault + role para o usuário + segredo `ai-services-key` |
-| [storage.tf](storage.tf) | Storage Account de dados + containers `audios` e `imagens` |
-| [mongodb.tf](mongodb.tf) | Container Group ACI: MongoDB 7.0 + Mongo Express 1.0.2 |
-| [function.tf](function.tf) | Storage da Function + App Service Plan + Function App + 3 role assignments |
+| [main.tf](main.tf) | Providers, tags, locals (credenciais Mongo do lab), data source da LabRole |
+| [variables.tf](variables.tf) | `region` (padrão `us-east-1`) e tipo da EC2 do Mongo |
+| [outputs.tf](outputs.tf) | `data_bucket_name`, `lambda_name`, `function_url`, `mongodb_public_ip`, `mongo_express_url`, `mongo_secret_id` |
+| [storage.tf](storage.tf) | Bucket de dados + prefixos `audios/` e `imagens/` |
+| [lambda.tf](lambda.tf) | Lambda Python 3.12 + Function URL + LabRole (timeout 60 s) + log group |
+| (nenhum) | Nada a criar: Transcribe, Polly, Comprehend e Rekognition são APIs da conta |
+| [secrets.tf](secrets.tf) | Secrets Manager com a URI do MongoDB (lida pela Lambda) |
+| [mongodb.tf](mongodb.tf) | EC2 Amazon Linux 2023 com Docker: MongoDB 7.0 + Mongo Express 1.0.2 |
 
-## Observações
+## Como usar
 
-- **Custom subdomain:** sem ele, a Managed Identity não consegue autenticar no AI Services. Já está configurado em `cognitive.tf`.
-- **Speech usa chave, não MI:** o endpoint de Speech STT exige a role `Cognitive Services Speech User` separada. Para simplificar, a aula usa a chave (armazenada no Key Vault, lida pela Function via KV reference no `AI_KEY` app setting).
-- **ACI em vez de VM:** Azure for Students pode ter capacidade de SKU de VM esgotada na região. ACI não tem esse problema e inicializa em ~2 min.
-- **Região:** `eastus2` padrão. Vision 4.0 `Caption` não está disponível em `eastus2` — o lab usa Tags + OCR + Objects.
-- **Custo:** AI Services S0 é pay-per-call. Sem chamadas = sem custo. Function Consumption Y1 = grátis até 1M req/mês. ACI cobra por hora de execução (~$0,001/h para este size).
+```bash
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform
+export PATH="$HOME/bin:$PATH" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+terraform init && terraform apply -auto-approve
+cd .. && source exportar-outputs.sh
+# ...labs...
+cd terraform && terraform destroy -auto-approve
+```
+
+## Decisões de projeto
+
+- **Sem recurso de IA:** na AWS os serviços de IA são APIs da conta. O acesso é IAM puro — a LabRole da Lambda.
+- **Placeholder na Lambda:** o Terraform publica um handler mínimo; o código real, com dependências, é publicado no Lab 2. `ignore_changes` impede o `apply` seguinte de desfazer o deploy.
+- **MongoDB na internet (com senha):** a Lambda roda fora da VPC e sai por IPs da AWS que mudam, então a porta 27017 fica aberta. Em produção: Lambda na VPC, Mongo em subnet privada e regra entre security groups (exercício 1.3).
+- **Function URL pública:** duas permissões na política da função (`InvokeFunctionUrl` e `InvokeFunction` com `InvokedViaFunctionUrl`), exigidas desde out/2025.

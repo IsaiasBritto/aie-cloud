@@ -4,56 +4,62 @@ Este guia leva ~15 minutos. Você **não precisa instalar nada** no seu computad
 
 ---
 
-## 1. Ativar o Azure for Students
+## 1. Entrar no AWS Academy Learner Lab
 
-A FIAP é uma instituição parceira da Microsoft, então você tem acesso gratuito a **$100 de crédito Azure por ano**, sem cartão de crédito.
+A turma usa o **AWS Academy Learner Lab**: uma conta AWS de laboratório, com crédito
+próprio e **sem cartão de crédito**.
 
-1. Acesse [azure.microsoft.com/free/students](https://azure.microsoft.com/free/students).
-2. Clique em **Iniciar gratuitamente** (ou *Start free*).
-3. Faça login com seu **e-mail institucional FIAP** (`@fiap.com.br`).
-4. Confirme os dados e aceite os termos.
-5. Verifique seu e-mail e conclua a ativação.
+1. Aceite o convite do **AWS Academy** que chegou no seu e-mail institucional (`@fiap.com.br`).
+2. Crie a senha e entre em [awsacademy.instructure.com](https://awsacademy.instructure.com).
+3. Abra o curso da disciplina → **Modules** → **Launch AWS Academy Learner Lab**.
+4. Clique em **Start Lab** e espere a bolinha ao lado de **AWS** ficar **verde** (1–3 min).
+5. Clique em **AWS**: o console abre numa aba nova, já autenticado.
 
-> **Não consegue ativar?** Anote o erro e traga para a Aula 1. Faremos juntos durante a primeira aula.
+> **Regras do Learner Lab que valem a disciplina inteira:**
+>
+> - A sessão dura **4 horas**. Ao fim, tudo **para** (instâncias desligam), mas **não é
+>   apagado** — e volta a cobrar do crédito quando você religa. Por isso cada lab
+>   termina com `terraform destroy`.
+> - Use a região **us-east-1 (N. Virginia)**.
+> - Não dá para criar IAM roles: usamos a **`LabRole`** e o **`LabInstanceProfile`** que já existem.
+> - O crédito consumido aparece na página do Learner Lab — é o seu "budget".
+
+**Não consegue entrar?** Anote o erro e traga para a Aula 1.
 
 ---
 
-## 2. Abrir o Azure Cloud Shell
+## 2. Abrir o AWS CloudShell
 
-O Cloud Shell é seu **ambiente de trabalho durante toda a disciplina**. Já vem com todas as ferramentas configuradas:
+O CloudShell é o seu **ambiente de trabalho durante toda a disciplina**:
 
-- `az` — Azure CLI
-- `terraform` — IaC principal
-- `bicep` — IaC nativo Azure (comparativo)
-- `python3` — labs de MLOps e cognitivos
-- `git` — controle de versão
-- `code` — editor estilo VS Code no browser
+- no console da AWS, ícone **`>_`** na barra superior (ou busque "CloudShell");
+- confira a região **us-east-1** no canto superior direito.
 
-**Como abrir:**
+Ele já vem com `aws` (CLI v2, autenticada com a sua sessão), `python3`, `pip3`, `git` e
+`docker`. O `$HOME` tem **1 GB persistente**: o que você salva lá sobrevive entre
+sessões; o resto, não.
 
-- Direto: [shell.azure.com](https://shell.azure.com)
-- Ou pelo portal Azure (`portal.azure.com`), ícone `>_` no canto superior direito.
+O **Terraform** não vem instalado — a Aula 1 instala no seu `$HOME` com um script:
 
-Na primeira vez, o Cloud Shell vai pedir para criar uma **storage account** para persistir seus arquivos. Aceite — o custo é desprezível (~$0,01/mês) e cabe no crédito de estudante.
-
-Escolha **Bash** quando perguntado (vamos usar Bash em todos os labs).
+```bash
+bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh
+source ~/.bashrc
+terraform -version
+```
 
 ---
 
 ## 3. Clonar este repositório
 
-Dentro do Cloud Shell, rode:
+Dentro do CloudShell:
 
 ```bash
-git clone https://github.com/isaiasbritto/aie-cloud.git
-cd aie-cloud
+git clone https://github.com/IsaiasBritto/aie-cloud.git ~/aie-cloud
+cd ~/aie-cloud
 ```
 
-Para abrir um arquivo no editor integrado:
-
-```bash
-code aulas/01-fundamentos-iac/README.md
-```
+Para editar arquivos: `nano` ou `vim` no próprio CloudShell, ou **Actions → Download
+file / Upload file** para trabalhar na sua máquina.
 
 ---
 
@@ -61,8 +67,8 @@ code aulas/01-fundamentos-iac/README.md
 
 Se você conseguiu:
 
-- [x] Ativar o Azure for Students
-- [x] Abrir o Cloud Shell
+- [x] Iniciar o Learner Lab (bolinha verde)
+- [x] Abrir o CloudShell em us-east-1
 - [x] Clonar este repositório
 
 Você está pronto para a **Aula 1**. Nos vemos lá.
@@ -71,8 +77,8 @@ Você está pronto para a **Aula 1**. Nos vemos lá.
 
 ## Ambientes complementares (usados em aulas específicas)
 
-- **GitHub Codespaces** — a partir da Aula 3, quando precisarmos de Docker. Conta GitHub tem 60h/mês grátis.
-- **Google Colab** — Aula 5 (MLOps), para notebooks de treino.
-- **Hugging Face Spaces** — Aulas 5 e 6, para deploy de modelos.
+- **Sua máquina, com Python** — Aula 4 (app Streamlit com microfone) e Aula 5 (a Eva local). Opcional.
+- **GitHub** — repositório privado do grupo para as entregas (Aula 1, `pos-aula-git.md`).
+- **AWS Pricing Calculator** ([calculator.aws](https://calculator.aws)) — Aula 6, sem login.
 
-Tudo gratuito e via browser — **nada precisa ser instalado localmente**.
+Nada além disso precisa ser instalado.

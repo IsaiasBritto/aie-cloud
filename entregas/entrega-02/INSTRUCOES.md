@@ -11,8 +11,8 @@
 | Item | Obrigatório? | Pontos máximos |
 |------|--------------|----------------|
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
-| 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 (storage, tiers, relacional vs NoSQL, RBAC do Key Vault) | ✅ Sim | 3 pts (Critério 1) |
-| 🟡 N2 — Exercícios 2.1 (matriz de dados QC + diagrama), 2.2 (plano de migração), 2.3 (particionamento Cosmos) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
+| 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 (storage, tiers, relacional vs NoSQL, Secrets Manager e IAM) | ✅ Sim | 3 pts (Critério 1) |
+| 🟡 N2 — Exercícios 2.1 (matriz de dados QC + diagrama), 2.2 (plano de migração), 2.3 (particionamento no DynamoDB ou no MongoDB) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
 | 🔴 N3 — Exercícios 3.1 (vector search verdadeira) |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total** | | **10 pts** |
@@ -31,7 +31,7 @@ qc-grupo-NN-aula02/
 ├── README.md                     # Como rodar o que foi entregue
 ├── diagramas/
 │   └── arquitetura-qc-aula02.png # Diagrama da camada de dados QC (do Ex 2.1)
-├── terraform/                    # main.tf evoluído + storage/sql/keyvault/cosmos/search (se N2 ou N3)
+├── terraform/                    # main.tf evoluído + storage/rds/secrets/dynamodb/mongo (se N2 ou N3)
 └── scripts/                      # Python: vector search se N3
 ```
 
@@ -58,10 +58,10 @@ Upload no Portal FIAP, tarefa "Entrega Aula 2".
 
 [Rubrica única](../rubrica.md). **Foco específico desta entrega:**
 
-- **N1:** justificar a escolha entre Object/File/Block e entre relacional/NoSQL/vector com base no caso de uso. RBAC do Key Vault no nível de menor privilégio.
+- **N1:** justificar a escolha entre Object/File/Block e entre relacional/NoSQL/vector com base no caso de uso. Política IAM do Secrets Manager no nível de menor privilégio.
 - **N2:** a **matriz de decisão de dados** da QC (9 domínios) com serviço + SKU + justificativa, e o **diagrama atualizado** incluindo a camada de dados. Esta é a peça central do projeto integrado nesta aula.
 - **N3 (bônus):** o exercício de **vector search verdadeira** (com embeddings) é o mais valorizado — é base do RAG dos agentes.
-- **Reflexão:** discutir por que segregar segredos no Key Vault muda o modelo de segurança em uma plataforma agentic.
+- **Reflexão:** discutir por que segregar segredos no Secrets Manager muda o modelo de segurança em uma plataforma agentic.
 
 ---
 

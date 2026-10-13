@@ -19,15 +19,15 @@ Esta disciplina é uma das **primeiras do MBA**, e **NÃO é necessário** conhe
 ### Estrutura dos 3 níveis (divisão de trabalho dentro do grupo)
 
 - 🟢 **Nível 1 — Básico:** conceitos (ciclo de vida, maturidade MLOps, MLflow params/metrics/artifacts, Registry/rollback, segurança de dados). Tudo perguntas/respostas — **zero código**
-- 🟡 **Nível 2 — Intermediário:** raciocínio + integração leve (integrar a 5ª tool na Function, plano de drift monitoring para a QC). Código pré-pronto disponível no repo
-- 🔴 **Nível 3 — Avançado:** **bônus opcional** — Sweep job (otimização de hiperparâmetros), Online Endpoint produtivo com load test, A/B testing real, MLOps vs LLMOps comparado
+- 🟡 **Nível 2 — Intermediário:** raciocínio + integração leve (integrar a 5ª tool na Lambda, plano de drift monitoring para a QC). Código pré-pronto disponível no repo
+- 🔴 **Nível 3 — Avançado:** **bônus opcional** — Hyperparameter Tuning (otimização de hiperparâmetros), endpoint produtivo com load test, A/B testing real, MLOps vs LLMOps comparado
 
 **Mínimo obrigatório:** N1 + N2 cobertos. **N3 é bônus** (até +2 pts extras).
 
 ### Distribuição entre membros (sugerida)
 
 - Iniciantes: N1 — consolidação dos conceitos
-- Intermediários: N2 — integração na Function + plano de drift
+- Intermediários: N2 — integração na Lambda + plano de drift
 - Experientes (com background ML): N3 — sweep, endpoint produtivo, A/B
 
 > **Rodízio:** quem fez N1 nas Aulas 1-4 deve assumir N2 ou N3 agora. Esta é a última oportunidade antes da entrega final.
@@ -36,7 +36,7 @@ Esta disciplina é uma das **primeiras do MBA**, e **NÃO é necessário** conhe
 
 Use o [template em `entregas/template-entrega-grupo.md`](../../entregas/template-entrega-grupo.md) para o `entrega-grupo-aula05.md` dentro do ZIP.
 
-> **Política "no install":** Tudo no Cloud Shell ou Azure ML Studio.
+> **Política "no install":** Tudo no AWS CloudShell ou no console do SageMaker AI.
 
 ---
 
@@ -49,7 +49,7 @@ Para cada cenário abaixo, identifique o **nível de maturidade MLOps** (0 = Man
 | Cenário | Nível | Justificativa |
 |---------|-------|---------------|
 | DS treina modelo no notebook, exporta .pkl, manda pro time de produto via Slack | | |
-| Equipe usa Azure ML Pipelines + Model Registry + deploy manual via portal | | |
+| Equipe usa SageMaker Pipelines + Model Registry + deploy manual pelo console | | |
 | Pull Request muda código → CI roda testes + treino + avaliação → se aprovado, deploy automático no Endpoint Production | | |
 | Pipeline roda toda semana com dataset atualizado, retreina + registra nova versão; aprovação humana antes de promover para Production | | |
 | Modelo em produção monitora drift; quando passa do limite, dispara retreino automático e cria PR para revisão | | |
@@ -111,9 +111,9 @@ Para cada artefato/métrica, marque se você logaria como `param`, `metric` ou `
 Cenário: você é o ML Engineer da Quantum Commerce. Sua linha do tempo do Registry está assim:
 
 ```
-recomendador-qc v1  → tags.stage = Production  (rodando há 1 mês)
-recomendador-qc v2  → tags.stage = Staging     (treinado há 1 semana, em teste)
-recomendador-qc v3  → tags.stage = None        (experimento de pesquisa, não validado)
+recomendador-qc v1  → Approved               (no endpoint há 1 mês)
+recomendador-qc v2  → PendingManualApproval  (treinado há 1 semana, em teste)
+recomendador-qc v3  → Rejected               (experimento de pesquisa, não validado)
 ```
 
 **Você quer promover v2 para Production.**
@@ -124,7 +124,7 @@ b) Se o v2 em Production começar a falhar 1 hora depois, como você faz rollbac
 
 c) Após rollback, o que você faz com v2? Archive imediato? Investiga? Por quê?
 
-d) Em **A/B testing**, como você dividiria tráfego entre v1 (estável) e v2 (novo) num único Online Endpoint?
+d) Em **A/B testing**, como você dividiria tráfego entre v1 (estável) e v2 (novo) num único endpoint do SageMaker? (Dica: *production variants* com pesos.)
 
 ---
 
@@ -140,7 +140,7 @@ Para cada situação de risco em ML, escolha a melhor mitigação:
 | Modelo é exposto publicamente — risco de inversão (recuperar dados de treino a partir das saídas) | |
 | Logs do endpoint capturam payload da request (que pode conter PII do cliente) | |
 
-Opções: **PII Detection antes do treino**, **Dados sintéticos (SDV)**, **Differential Privacy no treino**, **RBAC no Storage do dataset**, **Sampling de logs com retenção curta**.
+Opções: **PII Detection antes do treino** (ex.: Amazon Comprehend `DetectPiiEntities`), **Dados sintéticos (SDV)**, **Differential Privacy no treino**, **Política IAM / bucket policy restrita no dataset**, **Sampling de logs com retenção curta**.
 
 ---
 
@@ -162,9 +162,9 @@ a) **Desenhe o pipeline** completo do `recomendador-qc` no Excalidraw/draw.io, m
 
 b) **Liste os artefatos versionados** em cada etapa:
 
-- O que o MLflow tracking captura?
-- O que o Model Registry guarda?
-- O que o environment do job tem dentro?
+- O que o tracking captura (MLflow local e métricas do Training Job)?
+- O que o Model Registry guarda (veja `registrar_modelo.py`)?
+- O que a imagem `sagemaker-scikit-learn` + o `sourcedir.tar.gz` têm dentro?
 
 c) **Responda: por que um pipeline reproduzível** vale mais do que um notebook que treina bem? Imagine os 4 cenários:
 
@@ -179,20 +179,21 @@ d) **Identifique 3 gaps** entre o nosso lab (provavelmente nível 1 de maturidad
 
 ---
 
-### Exercício 2.2 — Integrar o recomendador na Function da QC
+### Exercício 2.2 — Integrar o recomendador na Lambda da QC
 
-A Function da Aula 3 precisa de uma 5ª rota `/recomendar`:
+A Lambda da Aula 3 precisa de uma 5ª rota `/recomendar`:
 
-a) **Implemente a rota no `function_app.py`:**
+a) **Implemente a rota no `lambda_function.py`:**
    - Recebe `produto_id` (ou `cliente_id` se o grupo modelou com base em reviews)
-   - Chama o Online Endpoint do Azure ML via REST
+   - Chama o endpoint com `boto3.client("sagemaker-runtime").invoke_endpoint(...)`
    - Retorna top 5 produtos similares com nome, preço, categoria
 
-b) **Use Managed Identity da Function** para autenticar no Endpoint (não API key)
-   - Atribua role `AzureML Online Endpoint User` à MI da Function no escopo do Workspace
-   - Documente como fica o código (`DefaultAzureCredential` → token)
+b) **Use a role da Lambda** para autenticar no endpoint (sem chave nenhuma)
+   - Mostre a política IAM mínima: `sagemaker:InvokeEndpoint` no ARN do **seu** endpoint
+     (no Learner Lab a LabRole já permite; documente o que seria em produção)
+   - Documente como fica o código — repare que não há token nem segredo
 
-c) **Trate falhas graciosamente:** se o Endpoint estiver indisponível (custo zero / down), retornar uma resposta de fallback baseada em **categoria** (top 5 produtos da mesma categoria do `produto_id` fornecido)
+c) **Trate falhas graciosamente:** se o endpoint estiver indisponível (apagado / cold start / erro), retornar uma resposta de fallback baseada em **categoria** (top 5 produtos da mesma categoria do `produto_id` fornecido)
 
 d) **Documente a tool no formato JSON Schema** (estilo OpenAI function calling), explicando ao agente quando usar `/recomendar` vs `/produtos`
 
@@ -210,7 +211,7 @@ a) **Métricas a monitorar:**
 
 b) **Como detectar drift:**
    - Estatísticos: KS test, PSI (Population Stability Index)
-   - ML-based: usar Azure ML Data Drift Monitor (link na documentação)
+   - ML-based: usar o **SageMaker Model Monitor** (data quality e model quality), com *data capture* no endpoint
 
 c) **Alertas:**
    - Threshold: quando alertar?
@@ -229,99 +230,92 @@ d) **Resposta automática vs manual:**
 
 > **Nota:** N3 envolve programação Python e conceitos de ML. Se o grupo não tem perfil avançado, entregar apenas N1 + N2 já garante 10 pts (mínimo obrigatório).
 
-### Exercício 3.0 — Sweep Job: otimização de hiperparâmetros
+### Exercício 3.0 — Hyperparameter Tuning: otimização de hiperparâmetros
 
-Estenda o `job.yml` do L₃ para rodar um **sweep job** (otimização automatizada de hiperparâmetros):
+Estenda o L₃ para rodar um **Hyperparameter Tuning Job** do SageMaker (o "sweep"):
 
-a) **Parametrizar** o `train.py` para aceitar `n_neighbors` e `metric` via argumentos CLI
+a) **Parametrize** o `train.py` para aceitar também `--metrica` (`cosine` | `euclidean`)
 
-b) Criar `sweep.yml`:
+b) Escreva `scripts/otimizar.py` chamando `create_hyper_parameter_tuning_job`:
 
-```yaml
-type: sweep
-sampling_algorithm: bayesian
-search_space:
-  n_neighbors: { type: choice, values: [3, 5, 10, 20] }
-  metric:      { type: choice, values: ["cosine", "euclidean"] }
-objective:
-  primary_metric: precision_at_k_proxy
-  goal: maximize
-limits:
-  max_total_trials: 8
-  max_concurrent_trials: 2
-trial: # mesma estrutura do job do L₃, com inputs parametrizados
-compute: azureml:cpu-cluster
+```python
+sm.create_hyper_parameter_tuning_job(
+    HyperParameterTuningJobName=f"rec-qc-tune-{sufixo}",
+    HyperParameterTuningJobConfig={
+        "Strategy": "Bayesian",
+        "HyperParameterTuningJobObjective": {
+            "Type": "Maximize", "MetricName": "precision_at_k_proxy"},
+        "ResourceLimits": {"MaxNumberOfTrainingJobs": 8, "MaxParallelTrainingJobs": 2},
+        "ParameterRanges": {
+            "IntegerParameterRanges": [{"Name": "n_neighbors", "MinValue": "3", "MaxValue": "10"}],
+            "CategoricalParameterRanges": [{"Name": "metrica", "Values": ['"cosine"', '"euclidean"']}],
+        },
+    },
+    TrainingJobDefinition={...},  # o mesmo do submeter_job.py, sem n_neighbors/metrica fixos
+)
 ```
 
-c) **Submeter** o sweep e identificar o melhor run
+c) **Submeta** e identifique o melhor job (`describe_hyper_parameter_tuning_job` → `BestTrainingJob`)
 
-d) **Promover** o melhor modelo com `tags.stage=Staging`
+d) **Registre** o melhor modelo no Registry como `PendingManualApproval`
 
 **Entrega:**
 
-- `aulas/05-mlops/lab/job/sweep.yml` no repo do grupo
-- Print da aba "Trials" do sweep job
-- Reflexão: por que esses ranges de hyperparam? Em que outros parâmetros faria sweep numa situação real?
+- `aulas/05-mlops/lab/scripts/otimizar.py` no repo do grupo
+- Print da aba *Training jobs* do tuning job
+- Reflexão: por que esses ranges? Em que outros parâmetros faria a busca numa situação real?
+
+> ⚠️ 8 jobs × ~3 min de ml.m5.large ≈ centavos — mas confira a cota de jobs simultâneos do Learner Lab antes.
 
 ---
 
-### Exercício 3.1 — Online Endpoint produtivo (com custo controlado)
+### Exercício 3.1 — Endpoint produtivo (com custo controlado)
 
-A) Provisione um Online Endpoint do Azure ML com:
+A) Publique o recomendador em endpoint de **instância** (`--tipo instancia`, ml.m5.large) e configure **auto scaling** (Application Auto Scaling): mín 1, máx 3, métrica `SageMakerVariantInvocationsPerInstance`
 
-- **Modelo:** `recomendador-qc:1` (do L₂)
-- **Compute:** `Standard_DS3_v2` com **1 réplica**
-- **Auto-scaling:** mín 1, máx 3, baseado em CPU > 70%
+B) Ligue o **data capture** do endpoint (10% das requisições, para um prefixo do bucket) — e discuta o que isso implica em LGPD
 
-B) Configure **Application Insights** integrado para coletar telemetria
-
-C) Faça **load test** com `hey`:
-
-```bash
-hey -n 100 -c 5 -H "Authorization: Bearer $KEY" \
-    -H "Content-Type: application/json" \
-    -d @request.json $ENDPOINT_URL
-```
+C) Faça **load test** a partir do CloudShell (ex.: um laço Python com `invoke_endpoint` em 5 threads, 100 requisições)
 
 D) Reporte:
 
-- p50, p95, p99 de latência
+- p50, p95, p99 de latência (métrica `ModelLatency` no CloudWatch)
 - Throughput máximo
-- Custo total do experimento (1 réplica × tempo ativo)
-- Comparação com Function HTTP da Aula 3 (que tem cold start mas custa $0 idle)
+- Custo total do experimento (instâncias × tempo ativo)
+- Comparação com o **serverless** da Atividade 4 (cold start × custo parado zero)
 
-E) **Reflexão:** quando vale endpoint dedicado vs Function consumindo modelo embedded vs ACI com modelo?
+E) **Reflexão:** quando vale endpoint dedicado vs serverless vs Lambda com o modelo embutido (o `.joblib` tem poucos KB)?
 
 ---
 
 ### Exercício 3.2 — A/B testing real
 
-A) Crie um **segundo deployment** (`green`) no mesmo endpoint, usando `recomendador-qc:2` (com `n_neighbors` diferente — do L₃ Parte D)
+A) Crie um **EndpointConfig com duas production variants** no mesmo endpoint: `blue` com a v1 e `green` com a v2 (do L₃ Parte D)
 
-B) Configure **traffic split:**
+B) Configure os **pesos**:
 
-- blue (v1): 80%
-- green (v2): 20%
+- blue (v1): 0.8
+- green (v2): 0.2
 
-C) Submeta 100 requests e colete logs
+C) Envie 100 requisições e veja, no CloudWatch, `Invocations` por variante
 
 D) Analise (mesmo que sintético):
 
-- Qual deployment foi mais rápido?
+- Qual variante foi mais rápida?
 - Qual gerou recomendações mais variadas?
 
-E) **Promova ou rollback:**
+E) **Promova ou faça rollback** com `update_endpoint_weights_and_capacities`:
 
-- Se v2 foi melhor: shift gradual para 50%/50% → 100%
-- Se v2 foi pior: rollback para 100% blue + archive v2
+- v2 melhor: 50/50 → 0/100, e aprove a v2 no Registry
+- v2 pior: 100/0, e rejeite a v2 no Registry
 
-Documente cada passo com `az ml online-endpoint update --traffic ...`
+Documente cada passo com o comando usado.
 
 ---
 
 ### Exercício 3.3 — MLOps vs LLMOps: aplicar à Quantum Commerce
 
-A QC quer trocar o recomendador clássico por um **agente conversacional** que usa LLM + vector search da Aula 2 + tools (a Function).
+A QC quer trocar o recomendador clássico por um **agente conversacional** que usa LLM + vector search da Aula 2 (pgvector) + tools (a Lambda).
 
 **Sua tarefa:** Compare os 2 cenários lado a lado:
 
@@ -339,7 +333,7 @@ A QC quer trocar o recomendador clássico por um **agente conversacional** que u
 
 **Reflexão (1 página):**
 
-- Quais ferramentas da Aula 5 (Tracking, Registry, Endpoints) **continuam relevantes** em LLMOps?
+- Quais ferramentas da Aula 5 (Tracking, Registry, Endpoints) **continuam relevantes** em LLMOps (ex.: Amazon Bedrock)?
 - Quais **mudam** ou ganham componentes novos (prompt registry, eval framework, RAG quality, etc.)?
 - Como você posicionaria os 2 sistemas na arquitetura QC? (substituir? coexistir? hibridizar?)
 
@@ -353,15 +347,15 @@ A entrega é **um ZIP por grupo** (`entrega-grupo-NN-aula05.zip`) no Portal FIAP
 |------|--------------|----------------|
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
 | 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 | ✅ Sim | 3 pts (Critério 1) |
-| 🟡 N2 — 2.1 (documentação pipeline MLOps), 2.2 (5ª tool na Function), 2.3 (plano de drift) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
-| 🔴 N3 — 3.0 (sweep), 3.1 (Endpoint + load test), 3.2 (A/B testing), 3.3 (MLOps vs LLMOps) | 🎁 Bônus | até +2 pts extras |
+| 🟡 N2 — 2.1 (documentação pipeline MLOps), 2.2 (5ª tool na Lambda), 2.3 (plano de drift) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
+| 🔴 N3 — 3.0 (tuning), 3.1 (endpoint + load test), 3.2 (A/B testing), 3.3 (MLOps vs LLMOps) | 🎁 Bônus | até +2 pts extras |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total da entrega** | | **10 pts** (10% da nota final) |
 
 **Prazo:** 1 dia antes da Aula 6.
 **Onde:** upload do ZIP no Portal FIAP.
 
-> **⚠️ Atenção custo:** se você manteve o Online Endpoint do N3 ativo entre a aula e a entrega, **delete agora**. ~$7/dia rodando. Reforço da rubrica: Critério 3 desconta se o endpoint estiver ativo na hora da correção.
+> **⚠️ Atenção custo:** se você manteve um endpoint de **instância** do N3 ativo entre a aula e a entrega, **apague agora** (`python3 scripts/limpar.py --registro`). ~US$ 2,76/dia por instância. Reforço da rubrica: Critério 3 desconta se o endpoint estiver ativo na hora da correção.
 
 ---
 
@@ -375,7 +369,7 @@ A Aula 6 tem 2 partes:
 Comece a consolidar agora:
 
 1. **Diagrama final** da arquitetura QC com **todas as camadas** (Aulas 1-5): IaC, dados, API serverless, cognitivos, ML
-2. **Terraform consolidado** que provisiona tudo (RG + Storage + SQL + Cosmos + AI Search + Function + AI Services + ML Workspace)
+2. **Terraform consolidado** que provisiona tudo (S3 + RDS/pgvector + DynamoDB + Lambda + Secrets Manager + bucket/Registry do SageMaker)
 3. **Estimativa de custos** mensal — vocês completam na Aula 6 com FinOps + calculadora
 4. **5 tools do agente** documentadas (`/produtos`, `/transcrever`, `/analisar-reviews`, `/analisar-imagem`, `/recomendar`)
 5. **Documento final** no formato ZIP para o Portal FIAP

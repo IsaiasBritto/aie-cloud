@@ -1,114 +1,106 @@
 """
-Aula 2 / Atividade 2 — Popular T_PRODUTOS no Azure SQL Database.
+Aula 2 / Lab 2 — Popular a tabela t_produtos no Amazon RDS for PostgreSQL.
 
 O script demonstra como NÃO hardcodar segredos:
-1. Lê a connection string do Azure Key Vault (não do código).
-2. Lê os produtos de um CSV no Blob Storage.
-3. Cria a tabela T_PRODUTOS no Azure SQL e insere os 20 produtos.
+1. Lê a connection string do AWS Secrets Manager (não do código).
+2. Lê os produtos de um CSV no S3 (prefixo catalogo/).
+3. Cria a tabela t_produtos no RDS e insere os 20 produtos.
 
-Autenticação: DefaultAzureCredential (usa a identidade do Cloud Shell).
+Autenticação: boto3 usa a credencial do CloudShell (LabRole) — nenhuma chave no código.
 
-Variáveis de ambiente necessárias:
-    KEY_VAULT_NAME           — nome do Key Vault
-    STORAGE_ACCOUNT_NAME     — nome do Storage Account com o CSV
+Variáveis de ambiente:
+    SECRET_ID    — nome do segredo (terraform output -raw secret_id)
+    BUCKET_NAME  — bucket com catalogo/produtos.csv (terraform output -raw bucket_name)
 
 Dependências:
-    pip install --user pyodbc azure-identity azure-keyvault-secrets azure-storage-blob
+    pip install --user boto3 "psycopg[binary]"
 """
 
 import csv
 import os
 import sys
 
-import pyodbc
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
-from azure.storage.blob import BlobServiceClient
+import boto3
+import psycopg
 
 
 def main():
-    kv_name = os.environ["KEY_VAULT_NAME"]
-    storage_account = os.environ["STORAGE_ACCOUNT_NAME"]
+    secret_id = os.environ["SECRET_ID"]
+    bucket = os.environ["BUCKET_NAME"]
 
-    credential = DefaultAzureCredential()
+    sm = boto3.client("secretsmanager")  # usa a LabRole do CloudShell
+    s3 = boto3.client("s3")
 
-    # 1. Ler connection string do Key Vault
-    print(f"→ Lendo connection string de {kv_name}...")
-    kv_client = SecretClient(
-        vault_url=f"https://{kv_name}.vault.azure.net",
-        credential=credential,
-    )
-    secret = kv_client.get_secret("sql-connection-string")
-    conn_str = secret.value
+    # 1. Ler connection string do Secrets Manager
+    print(f"→ Lendo connection string de {secret_id}...")
+    secret = sm.get_secret_value(SecretId=secret_id)
+    conn_str = secret["SecretString"]
     print("✓ Connection string obtida (não vamos imprimi-la)")
 
-    # 2. Baixar CSV do Blob Storage
-    print(f"→ Baixando produtos.csv de {storage_account}/catalogo...")
-    blob_client = BlobServiceClient(
-        f"https://{storage_account}.blob.core.windows.net",
-        credential=credential,
-    )
-    blob = blob_client.get_blob_client(container="catalogo", blob="produtos.csv")
-    csv_content = blob.download_blob().readall().decode("utf-8")
+    # 2. Baixar CSV do S3
+    print(f"→ Baixando s3://{bucket}/catalogo/produtos.csv...")
+    obj = s3.get_object(Bucket=bucket, Key="catalogo/produtos.csv")
+    csv_content = obj["Body"].read().decode("utf-8")
     rows = list(csv.DictReader(csv_content.splitlines()))
-    print(f"✓ {len(rows)} produtos lidos do Blob")
+    print(f"✓ {len(rows)} produtos lidos do S3")
 
-    # 3. Conectar no Azure SQL via pyodbc
-    print("→ Conectando no Azure SQL...")
-    driver = "{ODBC Driver 18 for SQL Server}"
-    conn_str_with_driver = f"Driver={driver};{conn_str}"
-
-    with pyodbc.connect(conn_str_with_driver, autocommit=False) as conn:
-        cursor = conn.cursor()
-
-        # 4. Criar tabela (drop se existir, para idempotência do lab)
-        cursor.execute("""
-            IF OBJECT_ID('dbo.T_PRODUTOS','U') IS NOT NULL
-                DROP TABLE dbo.T_PRODUTOS;
-            CREATE TABLE dbo.T_PRODUTOS (
-                id          INT PRIMARY KEY,
-                nome        NVARCHAR(200) NOT NULL,
-                descricao   NVARCHAR(1000),
-                categoria   NVARCHAR(100),
-                preco       DECIMAL(10,2),
-                estoque     INT
-            );
-        """)
-        conn.commit()
-        print("✓ Tabela T_PRODUTOS criada")
-
-        # 5. Inserir produtos
-        for r in rows:
-            cursor.execute(
-                "INSERT INTO dbo.T_PRODUTOS VALUES (?, ?, ?, ?, ?, ?)",
-                int(r["id"]),
-                r["nome"],
-                r["descricao"],
-                r["categoria"],
-                float(r["preco"]),
-                int(r["estoque"]),
+    # 3. Conectar no RDS via psycopg (TLS exigido pelo sslmode=require do segredo)
+    print("→ Conectando no RDS PostgreSQL...")
+    with psycopg.connect(conn_str, connect_timeout=15) as conn:
+        with conn.cursor() as cur:
+            # 4. Criar tabela (drop se existir, para idempotência do lab)
+            cur.execute("DROP TABLE IF EXISTS t_produtos")
+            cur.execute(
+                """
+                CREATE TABLE t_produtos (
+                    id          INTEGER PRIMARY KEY,
+                    nome        VARCHAR(200) NOT NULL,
+                    descricao   VARCHAR(1000),
+                    categoria   VARCHAR(100),
+                    preco       NUMERIC(10,2),
+                    estoque     INTEGER
+                )
+                """
             )
-        conn.commit()
-        print(f"✓ {len(rows)} produtos inseridos")
+            print("✓ Tabela t_produtos criada")
 
-        # 6. Verificar
-        cursor.execute("SELECT COUNT(*) FROM dbo.T_PRODUTOS")
-        total = cursor.fetchone()[0]
-        cursor.execute(
-            "SELECT TOP 3 id, nome, preco FROM dbo.T_PRODUTOS ORDER BY preco DESC"
-        )
-        top = cursor.fetchall()
+            # 5. Inserir produtos (parâmetros %s — nunca concatene SQL)
+            cur.executemany(
+                "INSERT INTO t_produtos VALUES (%s, %s, %s, %s, %s, %s)",
+                [
+                    (
+                        int(r["id"]),
+                        r["nome"],
+                        r["descricao"],
+                        r["categoria"],
+                        float(r["preco"]),
+                        int(r["estoque"]),
+                    )
+                    for r in rows
+                ],
+            )
+            conn.commit()
+            print(f"✓ {len(rows)} produtos inseridos")
+
+            # 6. Verificar
+            cur.execute("SELECT COUNT(*) FROM t_produtos")
+            total = cur.fetchone()[0]
+            cur.execute("SELECT id, nome, preco FROM t_produtos ORDER BY preco DESC LIMIT 3")
+            top = cur.fetchall()
 
     print("\n=== Resultado ===")
     print(f"Total de produtos: {total}")
     print("Top 3 mais caros:")
-    for row in top:
-        print(f"  #{row.id} - {row.nome} - R$ {row.preco}")
+    for pid, nome, preco in top:
+        print(f"  #{pid} - {nome} - R$ {preco}")
 
 
 if __name__ == "__main__":
     try:
         main()
+    except KeyError as e:
+        print(f"\n✗ Variável de ambiente ausente: {e}. Veja o guia (export ...).", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"\n✗ Erro: {e}", file=sys.stderr)
         sys.exit(1)

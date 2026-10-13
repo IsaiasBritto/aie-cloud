@@ -1,675 +1,272 @@
 # Guia de Laboratório — Aula 2
 
 **Tema:** Storage & Bancos de Dados na Nuvem
-**Plataforma:** Microsoft Azure (Azure for Students)
-**Ambiente:** **Azure Cloud Shell** — tudo no browser, sem instalar nada localmente
+**Plataforma:** Amazon Web Services (AWS Academy Learner Lab)
+**Ambiente:** **AWS CloudShell** — tudo no browser, sem instalar nada localmente
+**Região:** `us-east-1`
 
 ---
 
 ## Visão geral do lab
 
-Este lab é intercalado com a teoria. Cada atividade corresponde a um momento do cronograma.
-
 ```
 Preparação — terraform apply de TODA a camada de dados            ~10 min
-Atividade 1 — Storage Account + upload de CSV ao Blob              ~15 min  (L₁)
-Atividade 2 — Azure SQL + Key Vault + Python (T_PRODUTOS)          ~30 min  (L₂)
-Atividade 3 — Cosmos DB / MongoDB + Azure AI Search                ~55 min  (L₃)
-Wrap-up     — terraform destroy + verificação custo zero           ~10 min
+Atividade 1 — Bucket S3 + upload do CSV do catálogo                ~15 min  (L₁)
+Atividade 2 — RDS PostgreSQL + Secrets Manager + Python            ~30 min  (L₂)
+Atividade 3 — DynamoDB / MongoDB + busca vetorial (pgvector)       ~55 min  (L₃)
+Wrap-up     — terraform destroy + verificação de custo             ~10 min
 ```
 
-> **Regra de ouro:** sempre encerrar com `terraform destroy`. Custo zero ao final.
+> **Regra de ouro:** sempre encerrar com `terraform destroy`.
 
 ### Por que `terraform apply` de uma vez só, antes das atividades?
 
-A camada de dados completa da QC é uma **declaração única** — provisionar tudo de uma vez (~8 min) reflete como IaC funciona na vida real e libera o lab para focar em **explorar cada peça** via Python. Enquanto o Terraform roda, você lê os arquivos `.tf` para entender o que está sendo construído.
+A camada de dados da QC é uma **declaração única** — provisionar tudo de uma vez (~8 min, o RDS é o mais lento) reflete como IaC funciona na vida real. Enquanto o Terraform roda, você lê os arquivos `.tf` para entender o que está sendo construído.
 
 ---
 
 ## Pré-requisitos
 
-- ✅ Aula 1 concluída (Cloud Shell funcional, Terraform rodando, conta Azure ativa)
-- ✅ Repositório `aie-cloud` clonado no Cloud Shell (`git clone https://github.com/isaiasbritto/aie-cloud.git`)
-- ✅ Esboço da arquitetura QC do grupo commitado no fork
-
-Se não fez algum desses passos, ver [pre-aula da Aula 1](../../01-fundamentos-iac/pre-aula.md) e [pos-aula-git](../../01-fundamentos-iac/pos-aula-git.md).
+- ✅ Aula 1 concluída (Learner Lab iniciado, CloudShell funcionando, Terraform instalado no `$HOME`)
+- ✅ Esboço da arquitetura QC do grupo no repositório privado
 
 ---
 
 ## Preparação (15 min — antes do L₁)
 
-> Esta seção substitui integralmente a antiga "Preparação", incluindo as
-> subseções *Provisionar tudo* e *Exportar outputs*.
-
-### Passo 0 — Descubra as regiões válidas na SUA assinatura
-
-Contas Azure for Students têm uma policy que limita onde você pode criar
-recursos. **A lista muda de assinatura para assinatura** — não assuma a do
-colega nem a que está no `terraform.tfvars`.
-
-Um script faz tudo: lê a policy, verifica onde cada serviço do lab é oferecido
-para você, e já escreve o `terraform.tfvars`.
+### Passo 1 — Clone (ou atualize) o repositório e instale o Terraform
 
 ```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab
-bash check_regions.sh
+# Se já tinha clonado, apague e clone de novo (garante a versão da aula)
+cd ~ && rm -rf aie-cloud
+git clone https://github.com/IsaiasBritto/aie-cloud.git
+cd aie-cloud/aulas/02-storage-bancos/lab/terraform
+
+# Terraform no $HOME (só se ainda não instalou na Aula 1)
+bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh
+export PATH="$HOME/bin:$PATH" TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+
+# Pré-voo: a sessão tem acesso a S3, RDS, DynamoDB, Secrets Manager e EC2?
+bash ../check_regions.sh
 ```
 
-Ele imprime uma matriz região × serviço e a escolha final. Confira que
-`location`, `location_sql`, `location_search`, `location_aci` e
-`location_cosmos` foram preenchidos.
-
-> **Por que isso vem primeiro:** sem esse passo, o `apply` roda por dois minutos
-> e falha com `RequestDisallowedByAzure`. Com ele, você descobre em segundos.
-
-> **Por que a região é separada por serviço:** estar na lista de permitidas não
-> garante que o serviço existe ali. São erros diferentes, com causas diferentes:
->
-> | Erro | Causa | O script prevê? |
-> |---|---|---|
-> | `403 RequestDisallowedByAzure` | região fora da policy | sim |
-> | `403 ProvisioningDisabled` | serviço não oferecido na região | sim |
-> | `400 InsufficientResourcesAvailable` | cota do SKU free esgotada **agora** | não |
-> | `503 ServiceUnavailable` | capacidade da Azure esgotada **agora** | não |
->
-> Os dois últimos são transitórios e dependem do minuto. Se aparecerem no
-> `apply`, **repita o comando** antes de trocar de região.
-
-> **Se der 503 no Cosmos e persistir:** a conta de Cosmos não precisa ficar na
-> mesma região do Resource Group, então dá para movê-la sozinha, sem recriar
-> Storage, Key Vault e SQL:
->
-> ```bash
-> terraform apply -auto-approve -var="location_cosmos=<outra-regiao>"
-> ```
->
-> O próprio `terraform.tfvars` gerado lista, num comentário, quais outras
-> regiões permitidas oferecem Cosmos.
-
----
-
-### Passo 1 — Clone e atualize o repositório
+### Passo 2 — Provisione
 
 ```bash
-cd ~
-git clone https://github.com/isaiasbritto/aie-cloud.git 2>/dev/null || (cd ~/aie-cloud && git pull origin main)
+# Senha do RDS — fica só na memória deste terminal (o RDS não aceita / @ " e espaço)
+export DB_PASSWORD=$(openssl rand -hex 16)
 
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-ls
-```
-
-Você verá os arquivos `.tf`, o `terraform.tfvars` e o `setup-registry-aluno.sh`.
-Leia rapidamente cada `.tf` (5 min) para entender o que será provisionado.
-
----
-
-### Passo 2 — Instale as dependências Python
-
-O `~/.local` do Cloud Shell é apagado quando a sessão encerra, então isso
-precisa ser refeito a cada aula:
-
-```bash
-pip install --user -r ~/aie-cloud/aulas/02-storage-bancos/lab/scripts/requirements.txt
-
-python3 -c "import pyodbc; print(pyodbc.drivers())"
-```
-
-Precisa listar `ODBC Driver 18 for SQL Server`. O `ERROR` sobre
-`ansible-core requires packaging` que o pip mostra é ruído da imagem do Cloud
-Shell — pode ignorar.
-
----
-
-### Passo 3 — Crie o registry das imagens do MongoDB
-
-Este script cria um Azure Container Registry **na sua própria assinatura** e
-importa as imagens do MongoDB para lá. A região vem sozinha do Passo 0:
-
-```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-source setup-registry-aluno.sh
-```
-
-Só isso. Ele lê a região do `location_aci` que o Passo 0 gravou no
-`terraform.tfvars` — o registry acompanha o ACI de propósito, já que é o ACI
-quem puxa a imagem — e, por ser carregado com `source`, já deixa as três
-variáveis `TF_VAR_registry_*` prontas nesta sessão.
-
-No fim ele imprime um endereço terminado em `.azurecr.io`. Se aparecer, pode
-seguir direto para o `terraform apply`.
-
-> **Por que `source` e não `bash`:** um script executado com `bash` roda em outro
-> processo, e variáveis de ambiente não voltam para o shell que o chamou. Era por
-> isso que existia o segundo comando (`source ~/.qc-registry.env`) — e era o
-> passo que todo mundo esquecia, resultando em `apply` que puxa do Docker Hub e
-> falha com `409 RegistryErrorResponse`.
->
-> O arquivo `~/.qc-registry.env` continua sendo gravado (modo 600). Se a sessão
-> do Cloud Shell cair, `source ~/.qc-registry.env` recupera tudo sem recriar
-> nada.
-
-Para forçar outra região, `LOCAL=` continua funcionando:
-
-```bash
-LOCAL=brazilsouth source setup-registry-aluno.sh
-```
-
-> **Por que este passo existe:** o Azure Container Instances puxa a imagem do
-> Docker Hub usando IPs de saída compartilhados da região, e o Docker Hub
-> limita pulls anônimos a 100 por 6 horas **por IP**. Com a turma rodando junto,
-> esse limite estoura e o `apply` falha com `409 RegistryErrorResponse`. Com um
-> registry próprio, o pull sai do backbone da Azure e o problema desaparece.
->
-> O script é **idempotente**: o nome do registry é derivado do ID da sua
-> assinatura, então rodar de novo reaproveita o que já existe. Se a sessão do
-> Cloud Shell cair, basta repetir o `source`.
-
----
-
-### Passo 4 — Provisione
-
-Um comando:
-
-```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-bash provisionar.sh
-```
-
-Leva de 6 a 10 minutos. Aproveite para reler os `.tf` enquanto roda.
-
-**Anote a senha do SQL** que ele imprime no começo. Ela é gerada na hora e não
-fica gravada em disco — se a sessão do Cloud Shell cair, você precisa exportar
-exatamente a mesma, senão o Terraform troca a senha do servidor no meio do lab e
-a connection string do Key Vault fica inconsistente:
-
-```bash
-export TF_VAR_sql_admin_password="<a senha anotada>"
-```
-
-> **Não pressione `Ctrl+C` nem `Ctrl+Z` durante o apply.** Interromper deixa
-> recursos pela metade — uma conta Cosmos em estado `Failed`, por exemplo,
-> reserva o nome e impede recriar.
-
-#### O que o script faz sozinho
-
-O Passo 0 elimina os erros de região que dá para **prever**. Sobram três que só
-aparecem na hora de criar, porque dependem da sua assinatura e do minuto:
-
-| Erro | Significado | O que o script faz |
-|---|---|---|
-| `403 ProvisioningDisabled` | sua assinatura não provisiona esse serviço nessa região | troca a região **só desse serviço** |
-| `503 ServiceUnavailable` | capacidade da Azure esgotada agora | repete na mesma região; se insistir, troca |
-| `400 InsufficientResources` | cota do SKU free esgotada agora | idem |
-| `409 InvalidResourceLocation` | criação anterior que falhou deixou o nome ocupado | apaga o recurso fantasma e repete |
-| `already exists / needs to be imported` | o **soft delete** do Key Vault restaurou segredos antigos junto com o vault | apaga e faz *purge* do segredo, e repete |
-| `409 InvalidResourceLocation` no **SQL** sem recurso para apagar | nome de SQL Server é DNS global e a reserva sobrevive à falha, presa à região antiga | o `sql.tf` embute um hash da região no nome, então trocar de região já gera nome novo |
-
-Ele troca a região **por serviço**, nunca a região geral — o Cosmos pode ir para
-`eastus2` enquanto o resto fica onde está, sem recriar nada. As candidatas saem
-sempre da lista que a policy da sua assinatura permite.
-
-Se acabarem as regiões possíveis, ou se o erro não for de região, ele para e
-mostra a mensagem original. O log completo fica em `.provisionar.log`.
-
-#### Se preferir rodar na mão
-
-O caminho manual continua valendo, e é o que o script automatiza:
-
-```bash
-export TF_VAR_sql_admin_password="$(openssl rand -base64 24)"
 terraform init
-terraform plan     # confira: 26 to add, e as imagens vindo do SEU registry
-terraform apply -auto-approve
+terraform apply -auto-approve -var="db_password=$DB_PASSWORD"
 ```
 
-Para trocar a região de um serviço só, sem editar arquivo:
+Enquanto o Terraform trabalha (~8 min), leia os arquivos:
+
+| Arquivo | O que define |
+|---------|--------------|
+| [main.tf](terraform/main.tf) | Providers, sufixo aleatório, tags padrão, VPC padrão e o IP do CloudShell |
+| [variables.tf](terraform/variables.tf) | `region`, `db_password` e as senhas do MongoDB |
+| [outputs.tf](terraform/outputs.tf) | Nomes e endpoints consumidos pelos scripts Python |
+| [storage.tf](terraform/storage.tf) | Bucket S3 + 3 prefixos (`catalogo/`, `imagens/`, `logs/`) + lifecycle |
+| [rds.tf](terraform/rds.tf) | RDS PostgreSQL 16 `db.t3.micro` + security group (só o seu IP) |
+| [secrets.tf](terraform/secrets.tf) | Secrets Manager: connection string do PostgreSQL e credenciais do Mongo |
+| [dynamodb.tf](terraform/dynamodb.tf) | Tabela DynamoDB on-demand (`produto_id` + `review_id`) |
+| [mongo.tf](terraform/mongo.tf) | EC2 com Docker: MongoDB 7.0 + Mongo Express (Lab 3C) |
+
+### Passo 3 — Exporte os outputs
 
 ```bash
-terraform apply -auto-approve -var="location_cosmos=eastus2"
-```
-
----
-
-### Passo 5 — Confira o semantic ranker do AI Search
-
-O tier `free` suporta busca semântica (1000 queries/mês), mas o Terraform não
-consegue **declarar** isso: o provider recusa o argumento quando o SKU é `free`.
-Por isso o `search.tf` tem um `terraform_data` que chama o `az` logo depois de
-criar o serviço — você deve ter visto no apply:
-
-```
-terraform_data.search_semantic (local-exec): Semantic ranker habilitado.
-```
-
-Não há nada a fazer aqui. Só confirme:
-
-```bash
-az search service show \
-  --name $(terraform output -raw search_service_name) \
-  --resource-group $(terraform output -raw resource_group_name) \
-  --query "semanticSearch" -o tsv
-```
-
-Precisa responder `free`. Se vier `disabled` ou vazio, rode à mão:
-
-```bash
-az search service update \
-  --name $(terraform output -raw search_service_name) \
-  --resource-group $(terraform output -raw resource_group_name) \
-  --semantic-search free
-```
-
-> **Por que isso importa:** sem o semantic ranker, o script da Atividade 3
-> funciona na busca por keyword e falha só na busca semântica, com
-> `FeatureNotSupportedInService`. É pior que falhar direto — parece que está
-> tudo certo até a metade do exercício.
-
----
-
-### Passo 6 — Exporte os outputs
-
-Os scripts Python das atividades precisam destes valores:
-
-```bash
-export STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
-export KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
-export COSMOS_ENDPOINT=$(terraform output -raw cosmos_endpoint)
-export SEARCH_ENDPOINT=$(terraform output -raw search_endpoint)
+# Armazena em variáveis valores criados pelo terraform
+export BUCKET_NAME=$(terraform output -raw bucket_name)
+export SECRET_ID=$(terraform output -raw secret_id)
+export MONGO_SECRET_ID=$(terraform output -raw mongo_secret_id)
+export DYNAMO_TABLE=$(terraform output -raw dynamodb_table)
+export DB_HOST=$(terraform output -raw db_endpoint)
 export MONGO_IP=$(terraform output -raw mongodb_public_ip)
 
-echo "Storage:  $STORAGE_ACCOUNT_NAME"
-echo "KeyVault: $KEY_VAULT_NAME"
-echo "Cosmos:   $COSMOS_ENDPOINT"
-echo "Search:   $SEARCH_ENDPOINT"
-echo "MongoDB:  $MONGO_IP:27017  |  Mongo Express: $(terraform output -raw mongo_express_url)"
+# Exibe em tela
+echo "Bucket: $BUCKET_NAME"
+echo "Secret: $SECRET_ID"
+echo "DynamoDB: $DYNAMO_TABLE"
+echo "RDS: $DB_HOST"
+echo "MongoDB: $MONGO_IP:27017  |  Mongo Express: $(terraform output -raw mongo_express_url)"
 ```
+
+### Se a sessão do CloudShell cair
+
+As variáveis somem, mas o estado do Terraform fica no `$HOME`. Volte para a pasta, rode o Passo 3 de novo e, se o IP do CloudShell mudou (`terraform output meu_ip` × `curl -s https://checkip.amazonaws.com`), rode `terraform apply -var="db_password=..."` com **a mesma senha** para liberar o novo IP.
+
+> Perdeu a senha? Ela está no segredo: `aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --query SecretString --output text`.
 
 ---
 
-### Se a sessão do Cloud Shell cair
-
-A infraestrutura continua no ar. Refaça apenas:
-
-```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-
-pip install --user -r ../scripts/requirements.txt    # Passo 2
-source ~/.qc-registry.env                            # Passo 3
-export TF_VAR_sql_admin_password="<a senha anotada>" # Passo 4
-# e repita o Passo 6 (exportar os outputs)
-```
-
-Se o `~/.qc-registry.env` também tiver sumido, rode
-`source setup-registry-aluno.sh` outra vez — ele reaproveita o registry
-existente e leva poucos segundos.
-
-> **Não rode `provisionar.sh` de novo só para recuperar a sessão.** A
-> infraestrutura já existe; o script serviria apenas para confirmar que não há
-> nada a mudar. Se você rodar sem exportar a senha anotada, ele gera uma nova e
-> o Terraform troca a senha do SQL Server no meio do lab.
-
----
-
-## Atividade 1 — Storage Account + Blob (CSV do catálogo QC)
-
-**Objetivo:** Entender a estrutura de Object Storage e fazer upload do CSV de produtos da QC ao container `catalogo`.
+## Atividade 1 — Bucket S3 + upload do CSV (L₁)
 
 ### Passo 1 — Conferir o que foi provisionado
 
-Abra o [storage.tf](terraform/storage.tf) e observe:
-
-- **`azurerm_storage_account.qc`** — a "conta" do storage (nome globalmente único)
-- **3 containers** dentro dela: `catalogo`, `imagens`, `logs`
-- **`azurerm_storage_management_policy`** — política de lifecycle que migra automaticamente os blobs do prefixo `logs/`: Hot → Cool (30 dias) → Archive (90 dias) → delete (365 dias)
-
-No portal Azure, busque o Storage Account criado e clique em **Containers** para visualizar os 3.
+No console: **S3** → bucket `qc-aula02-xxxxxx` → prefixos `catalogo/`, `imagens/`, `logs/`. Aba **Management**: a regra `logs-lifecycle` (Standard → Standard-IA em 30 dias → Glacier em 90 → expira em 365).
 
 ### Passo 2 — Upload do CSV de produtos
 
-O CSV de 20 produtos da QC já está no repo em [data/produtos.csv](data/produtos.csv). Fazer upload:
-
 ```bash
-az storage blob upload \
-  --account-name "$STORAGE_ACCOUNT_NAME" \
-  --container-name catalogo \
-  --name produtos.csv \
-  --file ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv \
-  --auth-mode login \
-  --overwrite
+# 1. Localize e explore o arquivo
+ls ~/aie-cloud/aulas/02-storage-bancos/lab/data/
+head -5 ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv
 
-# Listar para confirmar
-az storage blob list \
-  --account-name "$STORAGE_ACCOUNT_NAME" \
-  --container-name catalogo \
-  --auth-mode login \
-  --output table
+# 2. Confira a identidade (no Learner Lab, a LabRole já acessa o S3)
+aws sts get-caller-identity
+
+# 3. Upload para o prefixo catalogo/
+aws s3 cp ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv \
+  s3://$BUCKET_NAME/catalogo/produtos.csv
+
+# 4. Confirme
+aws s3 ls s3://$BUCKET_NAME/catalogo/
 ```
 
-> **Se aparecer `AuthorizationPermissionMismatch` ou "You do not have the
-> required permissions":** este é o ponto da atividade, não um defeito.
->
-> Você é **Owner** da assinatura e mesmo assim não consegue escrever um blob.
-> Owner é **plano de controle** — cria, configura e apaga a conta de storage.
-> Ler e escrever blob é **plano de dados**, e tem um sistema de autorização
-> próprio. São duas permissões diferentes sobre o mesmo recurso, e a mensagem de
-> erro não diz qual está faltando.
->
-> O `storage.tf` já concede `Storage Blob Data Contributor` a você — então isso
-> aqui é quase sempre **propagação**, não configuração. Espere de 1 a 5 minutos e
-> repita. Para confirmar que o papel existe:
->
-> ```bash
-> az role assignment list \
->   --assignee $(az ad signed-in-user show --query id -o tsv) \
->   --scope $(az storage account show -n "$STORAGE_ACCOUNT_NAME" --query id -o tsv) \
->   --query "[].roleDefinitionName" -o tsv
-> ```
->
-> **Pergunta para discutir:** o próprio `az` sugere `--auth-mode key` como saída.
-> Funciona. Por que o lab não faz isso? Porque a chave da conta é
-> all-or-nothing — quem a tem lê, escreve e apaga tudo — e o log de auditoria
-> registra apenas "alguém com a chave", sem dizer quem. É exatamente o que a
-> disciplina inteira argumenta contra.
+> **Para discutir:** quem autorizou o upload? A **LabRole** da sua sessão, via política IAM. Não existe "chave do bucket" que dê acesso total a quem a tiver — a permissão é sempre de uma identidade, e o CloudTrail registra qual identidade fez o quê.
 
-> **Se aparecer `BlobNotFound` no script Python depois:** o upload acima não
-> chegou a acontecer (provavelmente falhou por permissão). Refaça o upload e
-> confirme na listagem antes de seguir.
-
-**✅ Checkpoint L₁:** Você consegue listar `produtos.csv` dentro do container `catalogo`?
+**✅ Checkpoint L₁:** `produtos.csv` aparece em `catalogo/`?
 
 ---
 
-## Atividade 2 — Azure SQL Serverless + Key Vault + Python
-
-**Objetivo:** Popular a tabela `T_PRODUTOS` no Azure SQL **lendo a connection string do Key Vault** (sem hardcoded) e os dados do **CSV no Blob**.
+## Atividade 2 — RDS PostgreSQL + Secrets Manager + Python (L₂)
 
 ### Passo 1 — Conferir o que foi provisionado
 
-Abra [sql.tf](terraform/sql.tf) e [keyvault.tf](terraform/keyvault.tf). Observe:
+- **RDS** → Databases → `qc-aula02-xxxxxx` (PostgreSQL 16, `db.t3.micro`). Aba **Connectivity & security**: o security group só aceita a porta 5432 do IP do seu CloudShell.
+- **Secrets Manager** → `qc-aula02-xxxxxx/postgres`. Clique em **Retrieve secret value** só para ver o formato — o script nunca imprime isso.
 
-- **`azurerm_mssql_database.qc`** — banco SQL **General Purpose Serverless** (`GP_S_Gen5_2`) com **auto-pause** após 60 min de inatividade: pausado, paga-se só o storage (centavos), e com o destroy ao final o custo é desprezível. *(A "oferta gratuita" do Azure SQL ainda não tem suporte no provider azurerm liberado — [PR #32055](https://github.com/hashicorp/terraform-provider-azurerm/pull/32055) — por isso usamos serverless com auto-pause.)*
-- **`azurerm_mssql_firewall_rule.cloud_shell`** — libera o IP do Cloud Shell automaticamente (usando o data source `http.meu_ip`).
-- **`azurerm_key_vault.qc`** — Vault com **RBAC habilitado** (sem usar Access Policies legadas).
-- **`azurerm_key_vault_secret.sql_connection`** — a connection string completa, armazenada como segredo.
+### Passo 2 — Rodar o script
 
-> **Por que `time_sleep` antes do segredo?** RBAC tem ~30-60s de propagação. Sem o sleep, o `apply` falha porque a role ainda não está ativa quando o Terraform tenta criar o segredo.
-
-### Passo 2 — Instalar dependências Python
+O [`popular_produtos.py`](scripts/popular_produtos.py): lê a connection string do Secrets Manager → baixa o CSV do S3 → conecta no RDS via `psycopg` → cria `t_produtos` (drop se existir) → insere os 20 produtos.
 
 ```bash
-pip install --user -r ../scripts/requirements.txt
-```
+# OPCIONAL: se perdeu a sessão e as variáveis
+# export SECRET_ID=...   export BUCKET_NAME=...
 
-> No Cloud Shell, `pip install --user` vai para `~/.local` (storage persistente — não suja a máquina do aluno).
-
-### Passo 3 — Rodar o script
-
-O script [popular_produtos.py](scripts/popular_produtos.py) já está pronto. Ele:
-
-1. Lê a connection string do Key Vault (usando a identidade do Cloud Shell)
-2. Baixa o CSV do Blob
-3. Conecta no SQL e cria a tabela `T_PRODUTOS`
-4. Insere os 20 produtos
-5. Mostra o top 3 mais caros
-
-Execute:
-
-```bash
+pip install --user boto3 "psycopg[binary]"
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 popular_produtos.py
 ```
 
-Esperado: 20 produtos inseridos, lista do top 3 mais caros.
+Saída esperada: `✓ 20 produtos inseridos` e o top 3 mais caros.
 
-> **Erro comum 1:** "Login failed for user 'sqladminqc'" — a senha tem caractere especial que o shell mascarou. Ver troubleshooting.
->
-> **Erro comum 2:** "The client with object id ... does not have authorization to perform action..." no Key Vault — espera 1 min e tenta de novo (a RBAC ainda está propagando, embora o Terraform já tenha esperado 60s).
+> **Erro comum — `connection timeout`:** o IP do CloudShell mudou desde o apply. Rode `terraform apply -var="db_password=$DB_PASSWORD"` de novo e repita.
 
-**✅ Checkpoint L₂:** Você inseriu 20 produtos no Azure SQL **lendo o segredo do Key Vault**?
+### Passo 3 — Consultar pelo psql (opcional)
+
+```bash
+sudo dnf install -y postgresql16 >/dev/null 2>&1 || sudo dnf install -y postgresql15
+psql "$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --query SecretString --output text)" \
+  -c "SELECT categoria, COUNT(*), ROUND(AVG(preco),2) FROM t_produtos GROUP BY categoria;"
+```
+
+**✅ Checkpoint L₂:** você inseriu 20 produtos no RDS **lendo o segredo do Secrets Manager**?
 
 ### Passo 4 — Discussão (3 min)
 
-Anote no `respostas-aula02.md` do seu fork:
-
 1. O que aconteceria se a `conn_str` viesse hardcoded no `popular_produtos.py` e o arquivo fosse commitado num repo público?
-2. Como você protegeria esse mesmo segredo se ele fosse usado por um agente AI rodando em Azure Function?
-3. Qual o papel do `DefaultAzureCredential` aqui? Por que ele "simplesmente funciona" no Cloud Shell mas não funcionaria no notebook local?
+2. Como você protegeria esse segredo se ele fosse usado por um agente rodando numa AWS Lambda? *(dica: a função lê o segredo em runtime com a execution role — e o Secrets Manager pode rotacionar a senha sozinho)*
+3. Por que o `boto3` "simplesmente funciona" no CloudShell, sem chave? De onde vem a credencial? E no seu notebook?
 
 ---
 
-## Atividade 3 — Cosmos DB / MongoDB + Azure AI Search
+## Atividade 3 — DynamoDB / MongoDB + busca vetorial (L₃)
 
-**Objetivo:** Inserir reviews dos clientes da QC num banco NoSQL (Cosmos DB **ou** MongoDB) e indexar o catálogo no Azure AI Search com semantic ranking — base para o RAG dos agentes.
+### Parte A — DynamoDB (20 min)
 
-> **Cosmos DB indisponível na sua região?** O ambiente provisiona automaticamente os dois bancos. Se o `terraform apply` criou o Cosmos com sucesso, siga a **Parte A**. Se recebeu `RequestDisallowedByAzure` ou `No region available` para o Cosmos, pule para a **Parte A.2 — MongoDB**.
+**Conferir:** console **DynamoDB** → Tables → `qc-aula02-xxxxxx-reviews` → chave de partição `produto_id` (Number) e de ordenação `review_id` (String). Capacidade **On-demand**.
 
-### Parte A — Cosmos DB (20 min)
-
-#### Passo 1 — Conferir o que foi provisionado
-
-Abra [cosmos.tf](terraform/cosmos.tf):
-
-- **`azurerm_cosmosdb_account.qc`** — conta Cosmos em modo **Serverless** (paga por operação). Custo das 4h de aula ≈ centavos.
-- **Container `reviews`** particionado por `/produto_id`.
-
-> **Por que não Free Tier?** O Free Tier do Cosmos só beneficia *provisioned throughput* (não serverless) e o Azure permite **apenas 1 conta free-tier por assinatura** — o que trava o `apply` se já houver outra. Por isso o lab usa serverless sem free-tier (`var.cosmos_free_tier = false`). Para ligar mesmo assim: `terraform apply -var="cosmos_free_tier=true"`.
-
-#### Passo 2 — Como o script autentica no Cosmos (key via Key Vault)
-
-Aqui há uma **pegadinha importante do Cloud Shell**: ele **não consegue emitir token AAD** para a audience de data-plane do Cosmos (`https://<conta>.documents.azure.com`) — qualquer tentativa de `DefaultAzureCredential` falha com `AudienceNotSupported`. Diferente de Key Vault, Blob e AI Search, que têm audience suportada.
-
-Por isso o [popular_reviews.py](scripts/popular_reviews.py) autentica no Cosmos com a **key**, lida do **Key Vault** (segredo `cosmos-primary-key`, provisionado pelo Terraform em [keyvault.tf](terraform/keyvault.tf)). É o mesmo padrão "segredo no Vault" do SQL — sem chave hardcoded no código.
-
-> **E a role data-plane?** O `cosmos.tf` também cria `azurerm_cosmosdb_sql_role_assignment` — mas ela serve para o cenário de **produção**: uma Function/Container com **Managed Identity** própria consegue token AAD para o Cosmos e usaria `DefaultAzureCredential` direto (sem key). A limitação é só do Cloud Shell.
-
-#### Passo 3 — Rodar o script de reviews
-
-[popular_reviews.py](scripts/popular_reviews.py) insere 30 reviews fictícias com diferentes scores.
+O [`popular_reviews.py`](scripts/popular_reviews.py) insere 30 reviews com `batch_writer` e faz uma **Query** na partição `produto_id = 5` filtrando `score >= 4`.
 
 ```bash
+# OPCIONAL: export DYNAMO_TABLE=...
+pip install --user boto3
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 popular_reviews.py
 ```
 
-Esperado: 30 reviews inseridas + listagem de reviews score ≥ 4 do produto 5.
+**Explorar no console:** a tabela → **Explore table items** → **Query** com `produto_id = 5`. Compare com **Scan**: a Query lê uma partição; o Scan lê a tabela inteira (e cobra por isso).
 
-#### Passo 4 — Explorar no portal
+### Parte B — Busca vetorial com pgvector (25 min)
 
-1. Portal → seu Cosmos account → **Data Explorer**
-2. Expandir `qc-db` → `reviews` → **Items**
-3. Visualizar os documentos JSON inseridos
+O mesmo RDS da Atividade 2 vira um Vector DB com a extensão **pgvector**. O [`indexar_produtos.py`](scripts/indexar_produtos.py):
 
-**✅ Checkpoint L₃-A:** Você vê 30 reviews no Data Explorer do Cosmos?
-
----
-
-### Parte A.2 — MongoDB via ACI (alternativa regional)
-
-> Se o Cosmos DB foi criado com sucesso, você pode pular para a **Parte B**. Se recebeu **"No region available"** ou **"RequestDisallowedByAzure"** no Cosmos, use este caminho — o MongoDB já foi provisionado junto com os demais recursos (mesmo `terraform apply`).
-
-O `terraform apply` criou um **Azure Container Instance** com **MongoDB 7.0** + **Mongo Express** (interface web). É a mesma abordagem da Aula 4.
-
-#### Passo 1 — Conferir o que foi provisionado
-
-Abra [mongodb.tf](terraform/mongodb.tf):
-
-- **`azurerm_container_group.mongodb`** — ACI com dois containers (MongoDB + Mongo Express) compartilhando rede do grupo.
-- **Portas expostas:** 27017 (MongoDB) e 8081 (Mongo Express).
-- **Autenticação vs Cosmos:** conexão TCP direta com usuário/senha — sem token AAD, sem Key Vault. Padrão de laboratório; em produção a senha viria do Key Vault (mesmo padrão do SQL aqui).
-
-#### Passo 2 — Aguardar o container estar pronto (~2 min)
+1. Cria a extensão `vector`, a tabela `produtos_vetor` e um índice **HNSW**
+2. Baixa o CSV do S3
+3. Gera os embeddings (MiniLM multilíngue, 384 dimensões) **aqui no CloudShell** e grava cada produto já com o seu vetor
+4. Demonstra busca por palavra × busca por significado × filtro + vetor
 
 ```bash
-echo "MongoDB  : $MONGO_IP:27017"
-echo "Mongo Web: $(terraform output -raw mongo_express_url)"
-# Abrir a URL do Mongo Express no browser — se carregar, o container está pronto
-```
-
-O script já tenta por até 100 segundos automaticamente — não é necessário aguardar manualmente.
-
-#### Passo 3 — Rodar o script de reviews
-
-```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
-python3 popular_reviews_mongo.py
-```
-
-Esperado: 30 reviews inseridas + listagem de reviews score ≥ 4 do produto 5. **Os dados são idênticos ao Cosmos** (mesmo seed, mesmos campos `produto_id` / `score` / `texto` / `cliente`) — facilita comparar os dois modelos NoSQL.
-
-#### Passo 4 — Explorar no Mongo Express
-
-1. Recuperar o endereço do servidor do Mongo
-```bash
-cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-terraform output mongo_express_url
-```
-3. Com o valor apresentado (ex.: `http://20.x.x.x:8081`), copie para abrir no browser
-4. Clicar em **qc-db** → **reviews** → **View**
-5. Observar os documentos JSON — mesma estrutura do Cosmos (sem o overhead de `_ts`, `_etag`, `_rid`)
-
-**✅ Checkpoint L₃-A.2:** Você vê 30 reviews no Mongo Express?
-
----
-
-### Parte B — Azure AI Search (25 min)
-
-#### Passo 1 — Conferir o que foi provisionado
-
-Abra [search.tf](terraform/search.tf):
-
-- **`azurerm_search_service.qc`** — Search service SKU **free** (3 índices, 50 MB), com **autenticação AAD/RBAC habilitada no data-plane** (`authentication_failure_mode`). Sem isso, o `DefaultAzureCredential` dos scripts levaria **403 Forbidden** mesmo com as roles.
-- **2 role assignments**: `Search Service Contributor` (gerencia índices) e `Search Index Data Contributor` (indexa/consulta documentos).
-- **`azapi_update_resource.search_semantic`** — habilita o **semantic ranker** (plano free, 1000 queries/mês). É feito via `azapi` porque o provider azurerm 3.x recusa esse ajuste quando o SKU é `free`, embora o Azure suporte. Sem ele, a busca semântica falharia com `Semantic search is not enabled for this service`.
-
-> **Atenção:** AI Search Free também é **1 por subscription**. Mesma lógica do Cosmos.
-
-#### Passo 2 — Rodar o script de indexação
-
-[indexar_produtos.py](scripts/indexar_produtos.py) cria o índice `produtos-index` com **analyzer em português** e configuração de semantic ranking, depois indexa os 20 produtos.
-
-```bash
-pip install --user azure-search-documents
-
-# Aguardar role propagar (~30s desde o terraform apply)
-sleep 30
-
-O tier `free` suporta semantic search (1000 queries/mês), mas o Terraform não
-consegue declarar isso — o provider recusa o argumento quando o SKU é `free`.
-Rode uma vez, depois do apply:
-
-az search service update \
-  --name $(terraform output -raw search_service_name) \
-  --resource-group $(terraform output -raw resource_group_name) \
-  --semantic-search free
-
-Sem esse passo, `indexar_produtos.py` funciona na busca por keyword e falha na
-busca semântica com `FeatureNotSupportedInService`.
-
-Após a execução do script, podemos seguir com o exercício:
-
+# OPCIONAL: export SECRET_ID=...  export BUCKET_NAME=...  (ou DB_HOST + DB_PASSWORD)
+pip install --user boto3 "psycopg[binary]" pgvector fastembed
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 indexar_produtos.py
 ```
 
-O script já demonstra 3 tipos de busca:
-- **Keyword:** `cadeira escritório`
-- **Semantic:** `algo para trabalhar em pé`
-- **Filtro + ordenação:** `categoria = moveis` ordenado por preço
+Na primeira execução o modelo (~220 MB) é baixado para o `/tmp` (o `$HOME` do CloudShell tem só 1 GB).
 
-#### Passo 3 — Validar no portal
+> **Por que embedding local e não um serviço?** O Learner Lab não libera o Amazon Bedrock. Em produção, o modelo de embedding seria do Bedrock (Titan/Cohere) — ou o **Bedrock Knowledge Bases** faria chunking, embeddings e índice de uma vez.
 
-1. Portal → `srch-qc-xxxxxx` → **Search Explorer**
-2. Testar query: `cadeira ergonomica` — observar resultados
-3. Mudar **Query type** para **Semantic** → testar `produto para dor nas costas`
-4. Observar o ranking semântico
+**Busca no psql (opcional):**
 
-**✅ Checkpoint L₃-B:** Você consegue executar buscas semânticas via Python e via Portal?
+```bash
+psql "$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --query SecretString --output text)" \
+  -c "SELECT a.nome, b.nome AS parecido, ROUND((1 - (a.embedding <=> b.embedding))::numeric, 2) AS similaridade
+      FROM produtos_vetor a JOIN produtos_vetor b ON a.id <> b.id
+      WHERE a.id = 1 ORDER BY a.embedding <=> b.embedding LIMIT 3;"
+```
 
-> **Nota importante:** Aqui usamos **semantic search** (ranking inteligente baseado nos modelos da Microsoft). Para fazer **vector search verdadeira** seria preciso gerar embeddings dos textos — chamando Azure OpenAI ou um modelo de embedding. **Veja Exercício 3.1 do [exercicios.md](../exercicios.md)** se quiser implementar vector search real.
+### Parte C — MongoDB na EC2 (alternativa ao DynamoDB)
+
+A EC2 `qc-aula02-xxxxxx-mongo` sobe o MongoDB 7.0 e o Mongo Express em Docker (~2 min após o apply).
+
+```bash
+# OPCIONAL: export MONGO_IP=...  export MONGO_SECRET_ID=...
+pip install --user boto3 pymongo
+cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
+python3 popular_reviews_mongo.py
+```
+
+O script lê usuário e senha do **Secrets Manager** — o mesmo padrão do RDS.
+
+**Explorar no Mongo Express:** abra `$(terraform output -raw mongo_express_url)` no navegador (usuário `qcadmin`, senha `QCview2024!`) → `qc-db` → `reviews`.
+
+> **Para discutir:** a porta 27017 só aceita o IP do CloudShell, mas a 8081 está aberta para a internet (com senha). Por que essa diferença? O que mudaria em produção?
+
+**✅ Checkpoint L₃:** reviews no DynamoDB (e/ou no Mongo) e a busca "algo para trabalhar em pé" trouxe a mesa de escritório sem nenhuma palavra em comum?
 
 ---
 
-## Wrap-up — Destroy e Custo Zero (10 min)
-
-### Passo 1 — Destruir o ambiente
+## Wrap-up — Destroy e custo zero (10 min)
 
 ```bash
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-terraform destroy -auto-approve
+terraform destroy -auto-approve -var="db_password=$DB_PASSWORD"
 ```
 
-Tempo: ~5 minutos.
+O destroy apaga bucket (mesmo com objetos — `force_destroy`), RDS (sem snapshot final), segredos (sem janela de recuperação), tabela DynamoDB e a EC2 do Mongo. Leva ~5 min por causa do RDS.
 
-> **Não precisa passar a senha.** O Terraform lê `TF_VAR_sql_admin_password` do
-> ambiente sozinho. Se a sessão caiu e a variável sumiu, qualquer valor serve —
-> a senha não é verificada na exclusão:
->
-> ```bash
-> terraform destroy -auto-approve -var="sql_admin_password=NaoImporta123!"
-> ```
-
-### Passo 2 — Apagar o registry (fica fora do destroy)
-
-O ACR mora em `rg-qc-registry`, um resource group **separado** do lab — de
-propósito, porque se ele estivesse no mesmo RG o `terraform destroy` falharia com
-*"the Resource Group still contains Resources"*, já que o Terraform não conhece
-esse recurso.
-
-O outro lado da moeda: ele **sobrevive ao destroy** e continua custando cerca de
-US$ 0,17/dia. Apague ao fim da aula:
-
-```bash
-az group delete -n rg-qc-registry --yes --no-wait
-```
-
-### Passo 3 — Verificar custo zero
-
-1. Portal → **Cost Management** → **Análise de custo** → filtrar por hoje
-2. Total deve estar próximo de $0 (serverless/auto-pause + Search free + duração curta do lab)
-3. Confirme que não sobrou nada:
-
-```bash
-az group list --query "[?starts_with(name,'rg-qc')].{nome:name, estado:properties.provisioningState}" -o table
-```
-
-### Passo 4 — Commitar progresso no seu fork
-
-No seu fork (não no repo `aie-cloud` clonado direto):
-
-```bash
-cd ~/aie-cloud-do-meu-fork    # ajuste para o caminho do SEU fork
-# Copiar arquivos relevantes para sua estrutura de fork (ou trabalhar direto nele)
-git add aula02/
-git status
-git commit -m "feat(aula02): provisionamento da camada de dados QC"
-git push origin main
-```
-
-> **NÃO commitar:** O `terraform.tfstate` (já está no `.gitignore`) — ele tem segredos. Se você criou `terraform.tfvars` com a senha, também não commitar.
+**Conferir:** página do Learner Lab → crédito consumido. **RDS esquecido ligado é o recurso mais caro desta aula.**
 
 ---
 
 ## Conexão com o projeto Quantum Commerce
 
-Saída desta aula — a **camada de dados da QC** está pronta:
-
 ```
 infrastructure/
   ├── main.tf, variables.tf, outputs.tf
-  ├── storage.tf    (Blob: catálogo, imagens, logs)
-  ├── sql.tf        (T_PRODUTOS — transacional)
-  ├── keyvault.tf   (segredos)
-  ├── cosmos.tf     (reviews — NoSQL Cosmos)
-  ├── mongodb.tf    (reviews — NoSQL MongoDB via ACI, alternativa regional)
-  └── search.tf     (índice de produtos — base de RAG)
+  ├── storage.tf    (S3: catálogo, imagens, logs + lifecycle)
+  ├── rds.tf        (t_produtos — transacional; produtos_vetor — pgvector)
+  ├── secrets.tf    (Secrets Manager)
+  ├── dynamodb.tf   (reviews — NoSQL)
+  └── mongo.tf      (reviews — MongoDB na EC2, alternativa)
 ```
 
-Esses recursos serão consumidos por:
-
-- **Aula 3** — funções serverless que leem do SQL via Key Vault
-- **Aula 4** — serviços cognitivos que usam imagens do Blob e o índice do Search
-- **Aula 5** — pipeline de MLOps que treina recomendação sobre reviews + produtos
-- **Disciplinas paralelas** — Integration Architecture e Knowledge Management consomem `T_PRODUTOS` e o índice de produtos
+- **Aula 3** — a Lambda lê o catálogo do S3
+- **Aula 4** — serviços de IA analisam reviews e imagens do bucket
+- **Aula 5** — agentes usam o catálogo e a busca vetorial como ferramentas
 
 ---
 
@@ -677,44 +274,34 @@ Esses recursos serão consumidos por:
 
 | Problema | Causa | Solução |
 |----------|-------|---------|
-| `RequestDisallowedByAzure` / "best available regions" no apply | A política da conta Azure for Students bloqueia a região (ex.: `brazilsouth`) para esses recursos | Rode com uma região permitida: `terraform apply -var="location=eastus2"`. Para descobrir as permitidas, abra no portal a criação de um Storage Account e veja as regiões do dropdown |
-| Cosmos: "Free tier has already been applied to another account" | Já existe (ou existiu) outra conta Cosmos free-tier na assinatura | Já tratado: o lab usa serverless sem free-tier por padrão. Se você ligou com `-var="cosmos_free_tier=true"`, volte para `false` |
-| AI Search: limite de SKU Free atingido | 1 search service Free por subscription | Destruir o existente em outra subscription, ou usar SKU `basic` (~$60/mês — evite) |
-| Python: "Login failed for user 'sqladminqc'" | Senha do shell tinha `$` ou aspas — interpretado errado | Use `openssl rand -base64 24` (não contém caracteres problemáticos) ou guarde em variável escapada |
-| Python pyodbc: "Can't open lib 'ODBC Driver 18 for SQL Server'" | Cloud Shell pode ter v17 em vez de v18 | Mudar `driver = "{ODBC Driver 17 for SQL Server}"` no script |
-| pyodbc: "Invalid value specified for connection string attribute 'Encrypt'" | Connection string com `Encrypt=true`/`false` (sintaxe .NET); o ODBC exige `yes`/`no` | Já corrigido no `keyvault.tf` (`Encrypt=yes;TrustServerCertificate=no`). Se o segredo foi criado antes do fix, rode `terraform apply` de novo para atualizá-lo |
-| Key Vault: "Forbidden — the user does not have ... action" | RBAC ainda não propagou | `sleep 60` e tentar de novo |
-| Cosmos: "Request is unauthorized" / `Forbidden` | Role data-plane ainda propagando (já é criada pelo Terraform em `cosmos.tf`) | Aguardar ~1 min e rodar de novo. Conferir: `az cosmosdb sql role assignment list --account-name <cosmos> -g <rg> -o table` |
-| Cosmos: `ClientAuthenticationError ... AudienceNotSupported` no Cloud Shell | O Cloud Shell não emite token AAD para a audience de data-plane do Cosmos (nenhuma credencial consegue) | Já tratado: o `popular_reviews.py` autentica por **key** lida do Key Vault (`cosmos-primary-key`). Afeta só o Cosmos (KV/Blob/Search têm audience suportada) |
-| AI Search: `Operation returned an invalid status 'Forbidden'` ao indexar | Serviço aceitava só API key no data-plane (token AAD recusado) | Já resolvido no `search.tf` (`authentication_failure_mode`). Em serviço criado antes do fix: `terraform apply` de novo |
-| AI Search: `Semantic search is not enabled for this service` | Semantic ranker não habilitado | Já resolvido via `azapi_update_resource.search_semantic` em `search.tf`. Em serviço antigo: `terraform apply` de novo (ou `az search service update --name <svc> -g <rg> --semantic-search free`) |
-| `terraform destroy` falha em Key Vault | Purge protection ou soft-delete | Confirmar `purge_protection_enabled = false` no `keyvault.tf` (já está) |
-| `AuthorizationPermissionMismatch` ou "You do not have the required permissions" no upload de blob | Ser Owner é plano de **controle**; ler/escrever blob exige papel de **dados**. São dois sistemas de autorização sobre o mesmo recurso | O `storage.tf` já concede `Storage Blob Data Contributor` a você. Se acabou de provisionar, é só **propagação**: aguarde 1 a 5 min e repita. Confirme com `az role assignment list --assignee $(az ad signed-in-user show --query id -o tsv) --scope $(az storage account show -n "$STORAGE_ACCOUNT_NAME" --query id -o tsv) -o table` |
-| MongoDB: `ServerSelectionTimeoutError` após 100s | ACI ainda inicializando | Aguardar 1 min e rodar `python3 popular_reviews_mongo.py` de novo |
-| MongoDB: `Authentication failed` | `MONGO_IP` não exportado ou IP errado | `echo $MONGO_IP` — se vazio: `export MONGO_IP=$(terraform output -raw mongodb_public_ip)` |
-| Mongo Express: página não carrega | ACI ainda subindo ou porta 8081 | Aguardar 2 min; confirmar URL: `terraform output mongo_express_url` |
+| `ExpiredToken` / `InvalidClientTokenId` | Sessão do Learner Lab acabou | **Start Lab** de novo e abra um CloudShell novo |
+| `InvalidParameterValue: The parameter MasterUserPassword...` | Senha com `/ @ "` ou espaço | `export DB_PASSWORD=$(openssl rand -hex 16)` |
+| Python: `connection timeout` no RDS ou no Mongo | IP do CloudShell mudou | `terraform apply -var="db_password=$DB_PASSWORD"` de novo |
+| `AccessDenied` ao criar recurso | Serviço/tipo fora do que o Learner Lab libera | Confira `bash ../check_regions.sh`; use `us-east-1` |
+| `NoSuchKey` no script | O upload da Atividade 1 não aconteceu | Refaça o `aws s3 cp` e confira com `aws s3 ls` |
+| `ResourceNotFoundException` no Secrets Manager | `SECRET_ID` vazio ou de outro apply | `export SECRET_ID=$(terraform output -raw secret_id)` |
+| `extension "vector" is not available` | Versão do PostgreSQL sem pgvector | O lab usa PostgreSQL 16 (com pgvector). Confira `engine_version` em `rds.tf` |
+| `No space left on device` no CloudShell | `$HOME` de 1 GB cheio (providers, pip) | `du -sh ~/.local ~/.terraform.d ~/aie-cloud/*/*/lab/terraform/.terraform`; use o `TF_PLUGIN_CACHE_DIR` e apague `.terraform` de labs antigos |
+| MongoDB: `ServerSelectionTimeoutError` | EC2 ainda subindo os containers | Aguarde 2 min e rode de novo. Log: EC2 → Actions → Monitor → Get system log |
+| Mongo Express pede senha | Basic auth ligado de propósito | Usuário `qcadmin`, senha `QCview2024!` |
+| `BucketAlreadyExists` | Nome global de bucket | O sufixo aleatório evita; rode `terraform apply` de novo |
 
 ---
 
 ## Tarefa pós-aula
 
-Antes da Aula 3:
-
-1. **Commitar tudo no fork** (já feito no wrap-up)
-2. **Atualizar `respostas-aula02.md`** com:
-   - Diagrama da arquitetura QC atualizado (camada de dados detalhada)
-   - Respostas às 3 perguntas de reflexão da L₂ (Key Vault)
-   - Justificativa: por que esses serviços para esses dados da QC
-3. **Resolver pelo menos os exercícios Nível 1** de [exercicios.md](../exercicios.md)
+1. Atualizar o diagrama da arquitetura QC (camada de dados detalhada)
+2. Responder as 3 perguntas da L₂ (Secrets Manager)
+3. Resolver pelo menos o Nível 1 de [exercicios.md](../exercicios.md)
 
 ---
 
 ## Referências
 
-- [Azure Storage Blob — Lifecycle](https://learn.microsoft.com/azure/storage/blobs/lifecycle-management-overview)
-- [Azure SQL Free Offer](https://learn.microsoft.com/azure/azure-sql/database/free-offer)
-- [Azure Cosmos DB Free Tier](https://learn.microsoft.com/azure/cosmos-db/free-tier)
-- [Azure AI Search — Semantic Ranking](https://learn.microsoft.com/azure/search/semantic-search-overview)
-- [Azure AI Search — Vector Search](https://learn.microsoft.com/azure/search/vector-search-overview) (Aula 4 / Exercício 3.1)
-- [DefaultAzureCredential — fluxo de autenticação](https://learn.microsoft.com/python/api/overview/azure/identity-readme#defaultazurecredential)
-- [Terraform AzureRM Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
+- [Amazon S3 — Lifecycle](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html)
+- [Amazon RDS for PostgreSQL — extensões (pgvector)](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html)
+- [pgvector](https://github.com/pgvector/pgvector)
+- [AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/latest/userguide/intro.html)
+- [Amazon DynamoDB — boas práticas de chave de partição](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html)
+- [Credenciais do boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html)
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
