@@ -1,11 +1,11 @@
 """Deva3 · API de Validação Biométrica Básica.
 
-Um endpoint. Uma responsabilidade: receber uma imagem, perguntar ao serviço
-cognitivo da Azure onde estão as pessoas (ou os rostos) e devolver as
-coordenadas com a pontuação de confiança.
+Um endpoint. Uma responsabilidade: receber uma imagem, perguntar ao Amazon
+Rekognition onde estão as pessoas (ou os rostos) e devolver as coordenadas com
+a pontuação de confiança.
 
-    POST /detectar?modo=pessoas   → Azure AI Vision (padrão, sempre funciona)
-    POST /detectar?modo=rostos    → Azure AI Face (opcional, Acesso Limitado)
+    POST /detectar?modo=pessoas   → Rekognition DetectLabels (Person) — padrão
+    POST /detectar?modo=rostos    → Rekognition DetectFaces
 
 O que esta API NÃO faz, de propósito: não identifica ninguém, não compara
 rostos, não guarda template biométrico. Ela detecta presença e devolve caixa.
@@ -35,11 +35,14 @@ from api.modelos import (
     ModoDeteccao,
     ResultadoDeteccao,
 )
-from api.servicos.armazenamento import ServicoArmazenamentoBlob
-from api.servicos.detector_rostos import ServicoFaceAzure
-from api.servicos.detector_visao import ServicoVisaoAzure
+from api.servicos.armazenamento import ServicoArmazenamentoS3
+from api.servicos.detector_pessoas import ServicoPessoasRekognition
+from api.servicos.detector_rostos import ServicoRostosRekognition
 
 TIPOS_ACEITOS = {"image/jpeg", "image/jpg", "image/png", "image/bmp", "image/webp"}
+
+# O Rekognition só lê JPEG e PNG. BMP e WEBP são convertidos para PNG antes.
+TIPOS_DO_REKOGNITION = {"image/jpeg", "image/jpg", "image/png"}
 
 
 @asynccontextmanager
@@ -47,7 +50,8 @@ async def ciclo_de_vida(aplicacao: FastAPI):
     """Roda uma vez na subida e uma vez na descida do container."""
     configuracao = obter_configuracao()
     print(f"[Deva3] Subindo em ambiente '{configuracao.ambiente}'")
-    print(f"[Deva3] Modos disponíveis: {configuracao.modos_disponiveis or 'nenhum'}")
+    print(f"[Deva3] Região: {configuracao.regiao}")
+    print(f"[Deva3] Modos disponíveis: {configuracao.modos_disponiveis or 'nenhum (sem credencial AWS)'}")
     print(f"[Deva3] Armazenamento configurado: {configuracao.armazenamento_configurado}")
     yield
     print("[Deva3] Encerrando.")
@@ -57,7 +61,7 @@ aplicacao = FastAPI(
     title="Deva3 · API de Validação Biométrica Básica",
     description=(
         "Recebe uma imagem e devolve as coordenadas das detecções com a pontuação "
-        "de confiança do serviço cognitivo da Azure. Material didático da FIAP."
+        "de confiança do Amazon Rekognition. Material didático da FIAP."
     ),
     version=obter_configuracao().versao,
     lifespan=ciclo_de_vida,
@@ -119,14 +123,14 @@ async def detectar(
     imagem: UploadFile = File(..., description="Arquivo JPEG, PNG, BMP ou WEBP"),
     modo: ModoDeteccao = Query(
         ModoDeteccao.PESSOAS,
-        description="'pessoas' usa o Image Analysis; 'rostos' usa o Face (Acesso Limitado)",
+        description="'pessoas' usa o DetectLabels (Person); 'rostos' usa o DetectFaces",
     ),
     consentimento: bool = Query(
         False,
-        description="Marque como verdadeiro para autorizar a gravação da imagem no Blob",
+        description="Marque como verdadeiro para autorizar a gravação da imagem no S3",
     ),
 ) -> ResultadoDeteccao:
-    """Recebe a imagem, chama o serviço da Azure e devolve as coordenadas."""
+    """Recebe a imagem, chama o Rekognition e devolve as coordenadas."""
     configuracao = obter_configuracao()
     inicio = time.perf_counter()
     identificador = uuid.uuid4().hex[:12]
@@ -138,36 +142,36 @@ async def detectar(
                                       configuracao.tamanho_maximo_bytes)
 
     # ── chamada ao serviço cognitivo ─────────────────────────────────────
+    if not configuracao.credencial_aws:
+        raise ServicoNaoConfigurado(
+            servico="Amazon Rekognition",
+            como_resolver=(
+                "Sem credencial AWS. Na sua máquina: exporte AWS_ACCESS_KEY_ID, "
+                "AWS_SECRET_ACCESS_KEY e AWS_SESSION_TOKEN (Learner Lab → AWS Details). "
+                "No ECS: confira o taskRoleArn da task definition."
+            ),
+        )
+
+    para_o_servico = _para_formato_do_rekognition(conteudo, imagem.content_type)
+    if para_o_servico is not conteudo:
+        avisos.append("A imagem foi convertida para PNG: o Rekognition só lê JPEG e PNG.")
+
     if modo is ModoDeteccao.ROSTOS:
-        if not configuracao.face_configurada:
-            raise ServicoNaoConfigurado(
-                servico="Azure AI Face",
-                como_resolver=(
-                    "Este modo é opcional e exige recurso Face aprovado no Acesso "
-                    "Limitado. Use ?modo=pessoas, que funciona com qualquer chave de Vision."
-                ),
-            )
-        servico = ServicoFaceAzure(
-            endpoint=configuracao.endpoint_face,
-            chave=configuracao.chave_face,
-            modelo_deteccao=configuracao.modelo_deteccao_face,
+        servico = ServicoRostosRekognition(
+            regiao=configuracao.regiao,
             tempo_limite=configuracao.tempo_limite_segundos,
         )
-        achados, _ = await servico.detectar(conteudo)
         avisos.append(
-            "No modo 'rostos' a Azure não devolve confiança de detecção. "
-            "A pontuação mostrada é derivada do atributo qualityForRecognition."
+            "O modo 'rostos' detecta presença de rosto. Ele não identifica ninguém: "
+            "identificar exigiria CompareFaces ou uma Collection, que o Deva3 não usa."
         )
     else:
-        servico = ServicoVisaoAzure(
-            endpoint=configuracao.endpoint_visao,
-            chave=configuracao.chave_visao,
-            versao_api=configuracao.versao_api_visao,
+        servico = ServicoPessoasRekognition(
+            regiao=configuracao.regiao,
+            confianca_minima=configuracao.confianca_minima_rekognition,
             tempo_limite=configuracao.tempo_limite_segundos,
         )
-        achados, dimensoes_servico = await servico.detectar(conteudo)
-        if dimensoes_servico[0] and dimensoes_servico[1]:
-            largura, altura = dimensoes_servico
+    achados, _ = await servico.detectar(para_o_servico, largura, altura)
 
     # ── montagem do resultado ────────────────────────────────────────────
     area_imagem = max(largura * altura, 1)
@@ -210,7 +214,7 @@ async def detectar(
         deteccoes=deteccoes,
         duracao_ms=int((time.perf_counter() - inicio) * 1000),
         imagem_persistida=False,
-        caminho_blob=None,
+        caminho_armazenamento=None,
         avisos=avisos,
     )
 
@@ -222,9 +226,10 @@ async def detectar(
                 "A imagem NÃO foi guardada porque não houve consentimento. "
                 "Só o resultado em JSON foi gravado."
             )
-        armazenamento = ServicoArmazenamentoBlob(
-            conexao=configuracao.conexao_armazenamento,
-            container=configuracao.container_blob,
+        armazenamento = ServicoArmazenamentoS3(
+            bucket=configuracao.bucket,
+            regiao=configuracao.regiao,
+            prefixo_raiz=configuracao.prefixo_armazenamento,
         )
         prefixo = await armazenamento.guardar(
             identificador=identificador,
@@ -234,13 +239,23 @@ async def detectar(
             momento=momento,
         )
         resultado.imagem_persistida = guardar_imagem
-        resultado.caminho_blob = f"{configuracao.container_blob}/{prefixo}"
+        resultado.caminho_armazenamento = f"s3://{configuracao.bucket}/{prefixo}"
         resultado.avisos = avisos
 
     return resultado
 
 
 # ─────────────────────────────── AUXILIARES ───────────────────────────────
+
+def _para_formato_do_rekognition(conteudo: bytes, tipo: str | None) -> bytes:
+    """Devolve os próprios bytes se já forem JPEG/PNG; senão, converte para PNG."""
+    if (tipo or "").lower() in TIPOS_DO_REKOGNITION:
+        return conteudo
+    with Image.open(io.BytesIO(conteudo)) as figura:
+        saida = io.BytesIO()
+        figura.convert("RGB").save(saida, format="PNG")
+        return saida.getvalue()
+
 
 def _validar_imagem(conteudo: bytes, tipo: str | None,
                     tamanho_maximo: int) -> tuple[int, int]:

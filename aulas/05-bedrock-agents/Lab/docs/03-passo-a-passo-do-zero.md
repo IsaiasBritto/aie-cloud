@@ -69,9 +69,11 @@ Não muda → apague.
 Nasce quase vazio e cresce com o uso. O que já entrou aqui no primeiro dia:
 
 - por que o modo padrão é `pessoas` e não `rostos`;
-- o contrato exato das duas APIs da Azure, com a data em que foi conferido;
-- **que o Face não devolve confiança** — o fato que mais impacta o design;
-- as armadilhas que já custaram tempo (barra no endpoint, contexto do Docker, F0).
+- o contrato exato das duas APIs do Rekognition, com a data em que foi conferido;
+- **que o Rekognition devolve caixa em proporção e confiança de 0 a 100** — as duas
+  conversões que mais impactam o design;
+- as armadilhas que já custaram tempo (contexto do Docker, sessão do Learner Lab
+  expirada, etiqueta reenviada sem forçar deploy).
 
 **Formato de cada linha:** `- [origem · AAAA-MM-DD] regra`. Origem responde "quem
 disse isso"; data permite envelhecer e arquivar.
@@ -108,8 +110,8 @@ inventar um `0.0`.
 Arquivo: `api/configuracao.py`
 
 Uma `@dataclass(frozen=True)` que lê tudo do ambiente, com `@lru_cache` para carregar
-uma vez só, e propriedades que respondem perguntas de negócio: `visao_configurada`,
-`face_configurada`, `modos_disponiveis`.
+uma vez só, e propriedades que respondem perguntas de negócio: `credencial_aws`,
+`armazenamento_configurado`, `modos_disponiveis`.
 
 **Decisão:** nenhum `os.getenv` espalhado pelo código. Quando o aluno perguntar "onde
 configura isso?", a resposta é sempre o mesmo arquivo.
@@ -134,15 +136,15 @@ mesma dúvida.
 Arquivos: `api/servicos/detector_visao.py`, `detector_rostos.py`, `armazenamento.py`
 
 Cada classe conhece **um** serviço externo, tem um método público (`detectar`,
-`guardar`) e um método privado `_interpretar` que converte o payload da Azure para o
+`guardar`) e um método privado `_interpretar` que converte o payload da AWS para o
 nosso contrato.
 
-**Decisão:** a tradução `left/top → x/y` do Face acontece **só** dentro de
-`ServicoFaceAzure._interpretar`. Conversão espalhada pela rota é como nasce bug de
+**Decisão:** a tradução proporção → pixel e 0–100 → 0–1 acontece **só** dentro de
+`_interpretar` / `caixa_em_pixels`. Conversão espalhada pela rota é como nasce bug de
 coordenada — e bug de coordenada aparece na tela, na frente da turma.
 
 **Decisão:** os `_interpretar` são testáveis sem rede. É o que permite ter teste de
-verdade sem gastar cota da Azure.
+verdade sem gastar chamada paga da AWS.
 
 ## Passo 8 · A rota — fina de propósito
 
@@ -152,7 +154,7 @@ Arquivo: `api/principal.py`
 chama → monta o resultado → decide sobre persistência → devolve.
 
 **Decisão:** a rota **orquestra**, não integra. Se `principal.py` começar a saber como
-a Azure formata resposta, a separação se perdeu.
+a AWS formata resposta, a separação se perdeu.
 
 Há também `GET /saude`, que diz quais modos estão disponíveis. É o primeiro lugar onde
 se olha quando algo trava — e evita meia hora de depuração no lugar errado.
@@ -172,7 +174,7 @@ Streamlit, na paleta FIAP, com quatro decisões:
 
 Arquivo: `api/testes/teste_deteccao.py`
 
-Quinze testes com payloads reais **copiados da documentação da Azure**. Nenhum toca a
+Vinte testes com payloads **no formato da documentação do Rekognition**. Nenhum toca a
 rede. Cobrem: interpretação dos dois formatos, ordenação por confiança, validação de
 imagem (vazia, grande, corrompida, tipo errado) e a regra do limiar.
 
@@ -202,22 +204,25 @@ fora e o container sobe com `ModuleNotFoundError` — armadilha registrada no `M
 
 ## Passo 12 · Infraestrutura como código
 
-Arquivos: `infra/00-variaveis.sh` … `99-remover-tudo.sh`, `infra/principal.bicep`
+Arquivos: `infra/00-variaveis.sh` … `99-remover-tudo.sh`, `infra/terraform/*.tf`
 
-**Decisão:** scripts numerados na ordem da dependência, com `00-variaveis.sh`
-concentrando os nomes. Quem lê a pasta entende a sequência sem abrir os arquivos.
+**Decisão:** Terraform descreve **o que existe** (bucket, ECR, cluster, task definition,
+serviço); os scripts numerados descrevem **a ordem** (criar → publicar imagem →
+implantar → apagar). Quem lê a pasta entende a sequência sem abrir os arquivos.
 
-**Decisão:** o script de criação **pede confirmação digitada** e o de remoção **exige
-digitar o nome do grupo**. Script que cria ou apaga recurso sozinho é como se perde
-crédito de estudante dormindo.
+**Decisão:** o bucket nasce com bloqueio público, criptografia e **regra de ciclo de
+vida** — LGPD escrita em código. E o script de remoção **exige digitar `apagar`**:
+script que apaga sozinho é como se perde o trabalho da turma.
 
 ## Passo 13 · Publicar
 
-`az acr build` constrói na nuvem; `az containerapp create/update` publica. A chave e a
-cadeia de conexão entram como **`--secrets`**, e as variáveis apontam para elas com
-`secretref:` — nunca em texto puro na linha de comando.
+`docker build` + `docker push` no CloudShell; `terraform apply -var servico_ativo=true`
+cria o serviço; `aws ecs update-service --force-new-deployment` garante a imagem nova.
+**Nenhuma chave** entra em lugar nenhum: Rekognition e S3 usam a task role (LabRole).
 
-**Decisão:** `--min-replicas 0`. Fora da aula, os containers dormem e não cobram.
+**Decisão:** os dois containers na **mesma tarefa**, falando por `localhost`. A
+fronteira backend/frontend continua (duas imagens, dois processos), sem precisar de
+service discovery nem load balancer.
 
 ## Passo 14 · Diagramas, skills e manuais
 
@@ -261,7 +266,7 @@ mkdir -p api/servicos api/testes web infra agente/skills docs
 # 2. Ambiente Python
 python -m venv .venv && source .venv/bin/activate
 pip install fastapi "uvicorn[standard]" python-multipart pydantic python-dotenv \
-            httpx pillow azure-storage-blob streamlit requests pytest
+            httpx pillow boto3 streamlit requests pytest
 pip freeze > api/requirements.txt      # depois separe o que é da interface
 
 # 3. Código, na ordem: modelos → configuração → erros → serviços → rota → interface

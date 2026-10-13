@@ -1,9 +1,11 @@
 """Configuração da aplicação Deva3.
 
 Todas as opções vêm de variáveis de ambiente. Em desenvolvimento elas são lidas
-do arquivo `.env`; em produção, das variáveis do Azure Container App.
+do arquivo `.env`; em produção, das variáveis da task definition do ECS.
 
-Nada de segredo escrito no código. Nunca.
+Nada de segredo escrito no código. Nunca. E, na AWS, nem no ambiente: a
+credencial do Rekognition e do S3 vem da role da tarefa (no Learner Lab, a
+LabRole), entregue pelo próprio ECS.
 """
 
 from __future__ import annotations
@@ -42,26 +44,21 @@ class Configuracao:
     versao: str = "1.0.0"
     ambiente: str = field(default_factory=lambda: _texto("AMBIENTE", "local"))
 
-    # ── Azure AI Vision (modo "pessoas") ─────────────────────────────────
-    endpoint_visao: str = field(default_factory=lambda: _texto("VISAO_ENDPOINT"))
-    chave_visao: str = field(default_factory=lambda: _texto("VISAO_CHAVE"))
-    versao_api_visao: str = field(
-        default_factory=lambda: _texto("VISAO_API_VERSAO", "2024-02-01")
+    # ── AWS — Rekognition (modos "pessoas" e "rostos") ───────────────────
+    regiao: str = field(
+        default_factory=lambda: _texto("AWS_REGION") or _texto("AWS_DEFAULT_REGION", "us-east-1")
+    )
+    # Confiança mínima (0–100) pedida ao DetectLabels. Abaixo dela o Rekognition
+    # nem devolve a caixa. É DIFERENTE do limiar de decisão (LIMIAR_CONFIANCA):
+    # este filtra ruído; o limiar decide aprovar ou revisar.
+    confianca_minima_rekognition: float = field(
+        default_factory=lambda: float(os.getenv("REKOGNITION_CONFIANCA_MINIMA", "50"))
     )
 
-    # ── Azure AI Face (modo "rostos") — opcional, exige Acesso Limitado ──
-    endpoint_face: str = field(default_factory=lambda: _texto("FACE_ENDPOINT"))
-    chave_face: str = field(default_factory=lambda: _texto("FACE_CHAVE"))
-    modelo_deteccao_face: str = field(
-        default_factory=lambda: _texto("FACE_MODELO_DETECCAO", "detection_03")
-    )
-
-    # ── Armazenamento (Blob) ─────────────────────────────────────────────
-    conexao_armazenamento: str = field(
-        default_factory=lambda: _texto("ARMAZENAMENTO_CONEXAO")
-    )
-    container_blob: str = field(
-        default_factory=lambda: _texto("ARMAZENAMENTO_CONTAINER", "deteccoes")
+    # ── Armazenamento (S3) ───────────────────────────────────────────────
+    bucket: str = field(default_factory=lambda: _texto("ARMAZENAMENTO_BUCKET"))
+    prefixo_armazenamento: str = field(
+        default_factory=lambda: _texto("ARMAZENAMENTO_PREFIXO", "deteccoes")
     )
     persistir_imagens: bool = field(
         default_factory=lambda: _booleano("PERSISTIR_IMAGENS", True)
@@ -83,25 +80,24 @@ class Configuracao:
 
     # ── Verificações ─────────────────────────────────────────────────────
     @property
-    def visao_configurada(self) -> bool:
-        return bool(self.endpoint_visao and self.chave_visao)
+    def credencial_aws(self) -> bool:
+        """Há credencial AWS alcançável? (env, perfil ou role da tarefa)"""
+        try:
+            import boto3
 
-    @property
-    def face_configurada(self) -> bool:
-        return bool(self.endpoint_face and self.chave_face)
+            return boto3.Session().get_credentials() is not None
+        except Exception:  # noqa: BLE001
+            return False
 
     @property
     def armazenamento_configurado(self) -> bool:
-        return bool(self.conexao_armazenamento)
+        return bool(self.bucket)
 
     @property
     def modos_disponiveis(self) -> list[str]:
-        modos = []
-        if self.visao_configurada:
-            modos.append("pessoas")
-        if self.face_configurada:
-            modos.append("rostos")
-        return modos
+        # No Rekognition os dois modos usam a mesma credencial e nenhum exige
+        # aprovação prévia (ao contrário do Face da Azure, de Acesso Limitado).
+        return ["pessoas", "rostos"] if self.credencial_aws else []
 
     def lista_origens(self) -> list[str]:
         if self.origens_permitidas.strip() == "*":

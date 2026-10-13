@@ -56,17 +56,15 @@ Nenhum detalhe de tecnologia interna — de propósito.
 | **Caixas magenta** | Pessoas. O **aluno** envia a foto; o **professor** provisiona, publica e define o limiar |
 | **Caixa ciano** | O nosso sistema. Tudo que está dentro do "limite do sistema" é responsabilidade nossa |
 | **Caixas cinza** | Sistemas externos. Nós **usamos**, não controlamos |
-| **Caixa âmbar tracejada** | O Azure AI Face é **opcional** e depende de aprovação de Acesso Limitado |
-| **Seta tracejada** | Caminho que só existe se a chave estiver configurada |
 
 ### As três leituras que valem discussão em aula
 
 1. **O limite do sistema é pequeno de propósito.** O Deva3 recebe, pergunta e devolve.
    Ele não treina modelo, não guarda template biométrico, não identifica pessoa.
-2. **Três dependências externas, três formas de falhar.** Vision fora do ar, Face sem
-   aprovação, Blob com cadeia de conexão errada — cada uma tem um erro diferente e um
-   `como_resolver` diferente na API.
-3. **A seta para o Blob tem uma condição escrita.** "SOMENTE com consentimento" está no
+2. **Três dependências externas, uma credencial.** Rekognition (duas APIs) e S3 usam a
+   mesma role. Sessão do Learner Lab expirada derruba as três de uma vez — e cada erro
+   chega com um `como_resolver` diferente na API.
+3. **A seta para o S3 tem uma condição escrita.** "SOMENTE com consentimento" está no
    desenho, não numa nota de rodapé. Se a regra é importante, ela aparece no diagrama.
 
 ---
@@ -86,24 +84,28 @@ Os números nas setas são a **ordem em que as coisas acontecem no laboratório*
 
 | # | O que é | Comando ou ação |
 |---|---|---|
-| **1** | Da sua máquina para o registro | `az acr build` — constrói **na nuvem**, você não precisa de Docker |
-| **2** | Do registro para os apps | `az containerapp create/update` |
-| **3** | O aluno abre a interface | HTTPS, na URL pública do `ca-deva3-web` |
-| **4** | A interface chama a API | `POST /detectar`, usando a variável `API_URL` |
-| **5** | A API chama o serviço cognitivo | `imageanalysis:analyze?features=people` |
-| **6** | A API grava o resultado | Upload no contêiner privado `deteccoes` |
+| **1** | Do CloudShell para a conta | `terraform apply` — bucket, ECR, cluster, logs, SG |
+| **2** | Do CloudShell para o registro | `docker build` + `docker push` — o CloudShell tem Docker |
+| **3** | Do registro para a tarefa | o ECS puxa as imagens com a *execution role* |
+| **4** | O aluno abre a interface | `http://<IP público da tarefa>:8501` |
+| **5** | A interface chama a API | `POST /detectar` em `localhost:8000` — mesma tarefa |
+| **6** | A API chama o serviço cognitivo | `detect_labels` / `detect_faces`, assinados com a task role |
+| **7** | A API grava o resultado | `put_object` no bucket privado, prefixo `deteccoes/` |
 
 ### O que o desenho mostra e o texto esconde
 
-- **Tudo dentro da moldura magenta é `rg-aula-05`.** É por isso que um único
-  `az group delete` encerra o laboratório inteiro — e por que o Módulo 8 existe.
-- **Os dois Container Apps estão no mesmo ambiente `cae-aula-05`**, mas são apps
-  separados. A fronteira entre backend e frontend é real, não conceitual.
-- **A chave nunca aparece numa seta.** Ela está listada dentro do `ca-deva3-api` como
-  *segredo* (`visao-chave`, `armazenamento-conexao`), porque é assim que ela vive:
-  como `--secrets` do Container App, referenciada por `secretref:`.
-- **`min 0 réplicas`** está escrito na caixa: fora da aula, os containers dormem e não
-  cobram. O único recurso que cobra parado é o registro de contêiner.
+- **Tudo dentro da moldura magenta carrega a tag `projeto = deva3`** (`default_tags`
+  do Terraform). É assim que se acha — e se apaga — o laboratório inteiro.
+- **Os dois containers estão na mesma tarefa**, mas são imagens e processos
+  separados. A fronteira entre backend e frontend é real; só não precisa de rede
+  entre eles (`localhost`).
+- **Nenhuma chave aparece no desenho, nem dentro das caixas.** Na versão Azure havia
+  segredos (`visao-chave`, `armazenamento-conexao`). Aqui não existe segredo: a
+  credencial é a role da tarefa, temporária, entregue pelo ECS.
+- **Não há "escala a zero"**: a tarefa Fargate cobra enquanto estiver de pé. Fora da
+  aula, `99-remover-tudo.sh` (ou `desired-count 0`).
+- **O Rekognition não tem caixa de "recurso criado"**: é API pronta. Não há nível
+  gratuito a esgotar por recurso nem endpoint a configurar — paga-se por imagem.
 
 ### Exercício de 5 minutos
 
@@ -111,10 +113,10 @@ Peça à turma para apontar, no desenho, **onde estaria o problema** em cada cas
 
 | Sintoma | Onde olhar no diagrama |
 |---|---|
-| A interface abre mas dá erro ao analisar | seta 4 — variável `API_URL` |
-| A API responde `404` na chamada à Azure | seta 5 — `VISAO_ENDPOINT` com barra no fim |
-| O container sobe e cai | caixas dos apps — porta de destino errada |
-| `ModuleNotFoundError: api` | seta 1 — imagem construída da pasta errada |
+| A interface abre mas dá "API não respondeu" | seta 5 — `API_URL` ou o container `api` caiu |
+| `ExpiredTokenException` ao rodar local | seta 6 — sessão do Learner Lab vencida |
+| `CannotPullContainerError` na tarefa | seta 3 — etiqueta que não existe no ECR |
+| `ModuleNotFoundError: api` | seta 2 — imagem construída da pasta errada |
 
 ---
 
@@ -130,40 +132,40 @@ Peça à turma para apontar, no desenho, **onde estaria o problema** em cada cas
 ### Como ler
 
 - **Linhas verticais** são participantes: pessoas, containers, classes do nosso código
-  e serviços da Azure. Repare que `_validar_imagem`, `ServicoVisaoAzure` e
-  `ServicoArmazenamentoBlob` aparecem como participantes — eles são objetos reais do
+  e serviços da AWS. Repare que `_validar_imagem`, `ServicoPessoasRekognition` e
+  `ServicoArmazenamentoS3` aparecem como participantes — eles são objetos reais do
   projeto, não abstrações do desenho.
 - **Setas cheias** são chamadas; **setas tracejadas** são respostas.
 - **Blocos `alt`** são caminhos alternativos: ou um, ou outro.
 - **Bloco `opt`** é um trecho que só acontece sob condição.
 - **Os números** seguem a ordem real da execução — dá para acompanhar de ponta a ponta.
 
-### Os quatro momentos que valem parar a aula
+### Os momentos que valem parar a aula
 
 **Passos 3 a 7 · a validação vem antes de tudo.**
 A imagem é checada em tamanho, tipo e integridade **antes** de qualquer chamada paga.
-Arquivo ruim nunca vira custo na Azure. Repare que os erros já saem com
-`como_resolver` preenchido.
+Arquivo ruim nunca vira custo na AWS. Os erros já saem com `como_resolver` preenchido.
 
-**Passos 9 a 12 · o caminho de erro é tão desenhado quanto o de sucesso.**
-`401`, `404`, `429` e `5xx` viram `FalhaDeIntegracao` e chegam ao aluno como `502` com
-instrução. Diagrama que só mostra o caminho feliz esconde metade do sistema.
+**Passo 8 · o formato que o serviço aceita não é o que o aluno manda.**
+O Rekognition só lê JPEG e PNG. BMP e WEBP viram PNG antes da chamada — e a API avisa.
 
-**Passo 14 · a tradução acontece num lugar só.**
-`_interpretar` converte `boundingBox {x,y,w,h}` da Azure para a nossa
-`CaixaDelimitadora` e ordena por confiança. No modo `rostos`, é o mesmo método que
-traduz `left/top` para `x/y`. Conversão espalhada é como nasce bug de coordenada.
+**Passos 11 a 13 · o caminho de erro é tão desenhado quanto o de sucesso.**
+`AccessDenied`, `InvalidImageFormat` e `Throttling` viram `FalhaDeIntegracao` e chegam
+ao aluno como `502` com instrução. Diagrama que só mostra o caminho feliz esconde metade
+do sistema.
 
-**Passo 16 · o limiar é aplicado pela API, não pela tela.**
+**Passo 15 · a tradução acontece num lugar só.**
+`_interpretar` converte a `BoundingBox` em **proporção** para pixels e a `Confidence`
+de **0–100** para 0–1. Conversão espalhada é como nasce bug de coordenada — e esta tem
+duas escalas para errar.
+
+**Passo 17 · o limiar é aplicado pela API, não pela tela.**
 `acima_do_limiar = confianca ≥ LIMIAR_CONFIANCA` acontece no backend. A interface só
-pinta: ciano acima, âmbar abaixo. Quem decide a régua é a configuração, e ela vai
-junto no payload.
+pinta: ciano acima, âmbar abaixo.
 
-**Passos 17 a 20 · o consentimento decide o que é gravado.**
-A nota amarela no diagrama é a regra inteira: a imagem só sobe se
-`PERSISTIR_IMAGENS=true` **e** o consentimento estiver marcado. Sem consentimento, vai
-só o JSON. Essa condição é a implementação de uma decisão de privacidade, e ela está
-desenhada.
+**Passos 18 a 21 · o consentimento decide o que é gravado.**
+A imagem só sobe se `PERSISTIR_IMAGENS=true` **e** o consentimento estiver marcado.
+Sem consentimento, vai só o JSON. E o que sobe expira em 7 dias, por regra do bucket.
 
 ---
 
@@ -172,7 +174,7 @@ desenhada.
 | Momento | Diagrama | Por quê |
 |---|---|---|
 | Abertura, antes de qualquer comando | **Contexto** | Define o escopo e já abre a conversa de responsabilidade |
-| Antes do Módulo 1 do provisionamento | **Arquitetura** | O aluno cria cada caixa sabendo para que ela serve |
+| Antes do `01-criar-recursos.sh` | **Arquitetura** | O aluno cria cada caixa sabendo para que ela serve |
 | Depois do primeiro teste com foto | **Sequência** | Explica o que o aluno acabou de ver acontecer |
 | Quando algo quebra | **Arquitetura + Sequência** | Localizar o problema no desenho é mais rápido que ler log |
 
@@ -180,6 +182,6 @@ desenhada.
 
 ## Para onde ir agora
 
-- **Provisionar pelo portal, tela a tela** → [`01-manual-portal.md`](01-manual-portal.md)
+- **O que foi criado, tela a tela no console** → [`01-manual-console.md`](01-manual-console.md)
 - **Provisionar por script** → [`02-manual-script.md`](02-manual-script.md)
 - **Como o projeto foi construído** → [`03-passo-a-passo-do-zero.md`](03-passo-a-passo-do-zero.md)

@@ -1,4 +1,4 @@
-# Execução local do Deva3 — os dois serviços, do jeito que rodarão na Azure.
+# Execução local do Deva3 — os dois serviços, do jeito que rodarão no ECS Fargate.
 #
 #   cp .env.exemplo .env   (e preencha)
 #   docker compose up --build
@@ -17,6 +17,11 @@ services:
     env_file: .env
     environment:
       AMBIENTE: local-compose
+      # A credencial AWS vem do SEU terminal (export do Learner Lab), não do
+      # arquivo: assim ela não fica gravada em disco junto com o projeto.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
     ports:
       - "8000:8000"
     healthcheck:
@@ -35,6 +40,7 @@ services:
     env_file: .env
     environment:
       # Dentro da rede do compose, a API atende pelo nome do serviço.
+      # (No ECS os dois containers estão na MESMA tarefa e se falam por localhost.)
       API_URL: http://api:8000
     ports:
       - "8501:8501"

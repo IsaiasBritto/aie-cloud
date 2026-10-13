@@ -13,8 +13,8 @@ agente/
 
 ## Por que `AGENTS.md` e `MEMORY.md` ficam na raiz, e não aqui
 
-Por **convenção**. Os harnesses (Claude Code, Codex, Cursor, e o campo *Instruções* do
-Microsoft Foundry) procuram o `AGENTS.md` na **raiz** do repositório. Movê-lo para cá
+Por **convenção**. Os harnesses (Claude Code, Codex, Cursor, e os agentes do
+Bedrock AgentCore e Kiro) procuram o `AGENTS.md` na **raiz** do repositório. Movê-lo para cá
 faria o agente abrir o projeto sem manual — e sem a regra que manda ler a memória.
 
 Então o arranjo é este:
@@ -39,8 +39,8 @@ Então o arranjo é este:
 ```markdown
 ---
 name: publicar-nova-versao
-description: Publica uma nova versão do Deva3 construindo as imagens no ACR e
-             atualizando os dois Container Apps do grupo rg-aula-05.
+description: Publica uma nova versão do Deva3 construindo as imagens, enviando ao
+             ECR e atualizando a tarefa do serviço ECS Fargate deva3.
 ---
 
 ## Quando usar        ← o gatilho

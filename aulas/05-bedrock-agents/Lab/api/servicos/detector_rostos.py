@@ -1,137 +1,66 @@
-"""Serviço de detecção de rostos usando o Azure AI Face.
+"""Detecção de rostos com o Amazon Rekognition (DetectFaces).
 
-⚠️ ATENÇÃO DIDÁTICA — leia antes de usar em sala:
+Diferente do Azure AI Face, aqui NÃO há Acesso Limitado: o DetectFaces
+funciona na hora, inclusive no AWS Academy Learner Lab. E devolve a confiança
+de detecção de verdade — não é preciso derivar nota de atributo de qualidade.
 
-1. O serviço **Face é de Acesso Limitado**. Criar o recurso exige preencher o
-   formulário de cadastro da Microsoft e ser aprovado. Se a turma não tem
-   aprovação, use o modo `pessoas` (Image Analysis) — ele funciona na hora.
+⚖️ O que esta chamada faz e o que ela NÃO faz:
 
-2. A detecção do Face **não devolve pontuação de confiança**. Ela devolve o
-   retângulo do rosto e ponto. Para ter algo comparável a uma confiança, pedimos
-   o atributo `qualityForRecognition` (baixa/média/alta) e o `blur`, e
-   convertemos isso numa nota de 0 a 1 — deixando claro no payload que é uma
-   nota **derivada**, não a confiança do detector.
+- DetectFaces responde "há um rosto aqui, com esta confiança". Só isso.
+- Não identifica ninguém. Identificar exigiria CompareFaces, SearchFacesByImage
+  ou uma Collection com IndexFaces — que guarda um vetor biométrico do rosto.
+  O Deva3 não chama nenhuma dessas, de propósito.
 
-Contrato da chamada (documentação em 30/08/2026):
+Contrato da chamada:
 
-    POST {endpoint}/face/v1.2/detect
-         ?detectionModel=detection_03&recognitionModel=recognition_04
-         &returnFaceId=false&returnFaceLandmarks=false
-         &returnFaceAttributes=qualityForRecognition,blur
-    Cabeçalhos: Ocp-Apim-Subscription-Key, Content-Type: application/octet-stream
+    rekognition.detect_faces(Image={"Bytes": ...}, Attributes=["DEFAULT"])
 
-Resposta:
+Resposta (trecho):
 
-    [ { "faceRectangle": {"top":54,"left":394,"width":78,"height":78},
-        "faceAttributes": {"qualityForRecognition":"high",
-                           "blur":{"blurLevel":"low","value":0.06}} } ]
+    {"FaceDetails": [{"BoundingBox": {"Width": 0.12, "Height": 0.20,
+                                      "Left": 0.61, "Top": 0.18},
+                      "Confidence": 99.98,
+                      "Quality": {"Brightness": 81.2, "Sharpness": 92.2}}]}
 """
 
 from __future__ import annotations
 
-import httpx
+import asyncio
 
-from api.erros import FalhaDeIntegracao, ServicoNaoConfigurado
 from api.modelos import CaixaDelimitadora
-
-# Conversão da qualidade categórica em nota numérica, para a interface conseguir
-# desenhar uma barra. É uma convenção NOSSA, e o payload diz isso.
-NOTA_POR_QUALIDADE = {"high": 0.95, "medium": 0.70, "low": 0.35}
+from api.servicos._aws import cliente, traduzir_erro
+from api.servicos.detector_pessoas import caixa_em_pixels
 
 
-class ServicoFaceAzure:
-    """Encapsula a chamada ao Azure AI Face."""
+class ServicoRostosRekognition:
+    """Encapsula a chamada ao DetectFaces."""
 
-    NOME = "Azure AI Face · /face/v1.2/detect"
+    NOME = "Amazon Rekognition · DetectFaces"
 
-    def __init__(self, endpoint: str, chave: str,
-                 modelo_deteccao: str = "detection_03", tempo_limite: int = 30) -> None:
-        if not endpoint or not chave:
-            raise ServicoNaoConfigurado(
-                servico="Azure AI Face",
-                como_resolver=(
-                    "Este modo é opcional e exige um recurso Face aprovado no programa "
-                    "de Acesso Limitado. Sem ele, use o modo 'pessoas'. "
-                    "Se você tem o recurso, defina FACE_ENDPOINT e FACE_CHAVE no .env."
-                ),
-            )
-        self.endpoint = endpoint.rstrip("/")
-        self.chave = chave
-        self.modelo_deteccao = modelo_deteccao
+    def __init__(self, regiao: str, tempo_limite: int = 30) -> None:
+        self.regiao = regiao
         self.tempo_limite = tempo_limite
 
-    @property
-    def url(self) -> str:
-        return f"{self.endpoint}/face/v1.2/detect"
-
-    async def detectar(self, imagem: bytes) -> tuple[
+    async def detectar(self, imagem: bytes, largura: int, altura: int) -> tuple[
         list[tuple[CaixaDelimitadora, float | None]], tuple[int, int]
     ]:
-        parametros = {
-            "detectionModel": self.modelo_deteccao,
-            "recognitionModel": "recognition_04",
-            "returnFaceId": "false",
-            "returnFaceLandmarks": "false",
-            "returnFaceAttributes": "qualityForRecognition,blur",
-        }
-        cabecalhos = {
-            "Ocp-Apim-Subscription-Key": self.chave,
-            "Content-Type": "application/octet-stream",
-        }
-
+        rekognition = cliente("rekognition", self.regiao, self.tempo_limite)
         try:
-            async with httpx.AsyncClient(timeout=self.tempo_limite) as cliente:
-                resposta = await cliente.post(
-                    self.url, params=parametros, headers=cabecalhos, content=imagem
-                )
-        except httpx.HTTPError as erro:
-            raise FalhaDeIntegracao(
-                servico=self.NOME,
-                mensagem="Não foi possível falar com o serviço de rostos.",
-                detalhe=str(erro),
-                como_resolver="Confira FACE_ENDPOINT e a conectividade de saída do container.",
-            ) from erro
+            corpo = await asyncio.to_thread(
+                rekognition.detect_faces, Image={"Bytes": imagem}, Attributes=["DEFAULT"]
+            )
+        except Exception as erro:  # noqa: BLE001
+            raise traduzir_erro(self.NOME, erro) from erro
+        return self._interpretar(corpo, largura, altura)
 
-        self._verificar_resposta(resposta)
-        return self._interpretar(resposta.json())
-
-    # ── auxiliares ───────────────────────────────────────────────────────
-    def _verificar_resposta(self, resposta: httpx.Response) -> None:
-        if resposta.status_code == 200:
-            return
-
-        dicas = {
-            401: "Chave inválida para o recurso Face.",
-            403: (
-                "Acesso negado. Quase sempre é o Acesso Limitado do Face: a assinatura "
-                "precisa estar aprovada. Use o modo 'pessoas' enquanto isso."
-            ),
-            400: "A imagem pode estar fora dos limites (1 KB a 6 MB, JPEG/PNG/GIF/BMP).",
-            429: "Cota estourada. Espere um minuto e tente de novo.",
-        }
-        raise FalhaDeIntegracao(
-            servico=self.NOME,
-            mensagem=f"O serviço de rostos devolveu HTTP {resposta.status_code}.",
-            detalhe=resposta.text[:600],
-            como_resolver=dicas.get(resposta.status_code, "Leia o campo detalhe."),
-        )
-
-    def _interpretar(self, corpo: list) -> tuple[
+    def _interpretar(self, corpo: dict, largura: int, altura: int) -> tuple[
         list[tuple[CaixaDelimitadora, float | None]], tuple[int, int]
     ]:
         achados: list[tuple[CaixaDelimitadora, float | None]] = []
-        for rosto in corpo or []:
-            retangulo = rosto.get("faceRectangle") or {}
-            caixa = CaixaDelimitadora(
-                x=int(retangulo.get("left", 0)),
-                y=int(retangulo.get("top", 0)),
-                largura=int(retangulo.get("width", 0)),
-                altura=int(retangulo.get("height", 0)),
-            )
-            atributos = rosto.get("faceAttributes") or {}
-            qualidade = (atributos.get("qualityForRecognition") or "").lower()
-            nota = NOTA_POR_QUALIDADE.get(qualidade)
-            achados.append((caixa, nota))
+        for rosto in corpo.get("FaceDetails") or []:
+            caixa = caixa_em_pixels(rosto.get("BoundingBox") or {}, largura, altura)
+            confianca = rosto.get("Confidence")
+            achados.append((caixa, round(float(confianca) / 100, 4) if confianca is not None else None))
 
-        # O Face não informa as dimensões da imagem; quem calcula é a API.
-        return achados, (0, 0)
+        achados.sort(key=lambda item: item[1] or 0, reverse=True)
+        return achados, (largura, altura)

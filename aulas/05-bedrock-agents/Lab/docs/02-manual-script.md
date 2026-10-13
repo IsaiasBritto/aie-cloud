@@ -1,211 +1,148 @@
-# Manual 2 — Provisionar por script (az CLI e Bicep)
+# Manual 2 — Provisionar por script (Terraform + Docker, no CloudShell)
 
-> O mesmo laboratório do manual anterior, em **três comandos**.
-> Use esta trilha depois que a turma já entendeu o que cada recurso é — senão o
-> script vira mágica, e mágica não se depura.
+> O laboratório inteiro em **três comandos**, de dentro do AWS CloudShell.
+> Leia o [diagrama de arquitetura](imagens/02-arquitetura.png) ao lado: cada script
+> corresponde a setas numeradas do desenho (1 · `terraform apply`, 2 · `docker push`,
+> 3 · o ECS puxando as imagens).
 >
-> Acompanhe com o [diagrama de arquitetura](imagens/02-arquitetura.png) aberto ao lado:
-> cada script corresponde a uma seta numerada do desenho (1 · `az acr build`,
-> 2 · `az containerapp create/update`).
->
-> Tempo estimado: **10 a 15 minutos**.
+> Tempo estimado: **10 a 15 minutos** (o build das imagens é a parte lenta).
 
 ---
 
-## 0 · Preparar a máquina
+## 0 · Preparar o ambiente
+
+1. AWS Academy → **Learner Lab** → **Start Lab** → espere a bolinha **verde** → **AWS**.
+2. No console, região **N. Virginia (us-east-1)**, ícone **CloudShell** na barra superior.
+3. Terraform no `$HOME` (se ainda não fez na Aula 1):
 
 ```bash
-# 1. Instalar a CLI (uma vez por máquina)
-#    Windows:  winget install -e --id Microsoft.AzureCLI
-#    macOS:    brew install azure-cli
-#    Linux:    curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-az version
-az login                      # abre o navegador
-az account show -o table      # confira se a assinatura é a certa
-
-# 2. Se você tem mais de uma assinatura:
-az account list -o table
-az account set --subscription "Azure for Students"
-
-# 3. Extensão e provedores (uma vez por assinatura)
-az extension add --name containerapp --upgrade
-az provider register -n Microsoft.App --wait
-az provider register -n Microsoft.OperationalInsights --wait
-az provider register -n Microsoft.ContainerRegistry --wait
-az provider register -n Microsoft.CognitiveServices --wait
+git clone https://github.com/IsaiasBritto/aie-cloud.git ~/aie-cloud 2>/dev/null || git -C ~/aie-cloud pull
+bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh
+source ~/.bashrc
+terraform -version && docker --version && aws sts get-caller-identity
 ```
 
-⚠️ Pular o `az provider register -n Microsoft.App` faz a criação do ambiente de
-Container Apps falhar com uma mensagem que **não** diz que foi isso. É o erro nº 1
-desta trilha.
+> O CloudShell já vem com AWS CLI, Docker e a **credencial da sua sessão**. Não há
+> `login`, não há chave para copiar, não há provedor para registrar — o erro nº 1 da
+> trilha Azure (`az provider register`) simplesmente não existe aqui.
 
 ---
 
 ## 1 · Os três comandos
 
 ```bash
-git clone https://github.com/IsaiasBritto/aie-cloud.git
-cd aie-cloud/aulas/05-foundry-agents/Lab
+cd ~/aie-cloud/aulas/05-bedrock-agents/Lab
+export VERSAO=v1                     # etiqueta das imagens. Nunca 'latest'
 
-export SUFIXO=fiap01          # 4 a 6 caracteres, únicos no mundo
-export REGIAO=eastus2
-export VERSAO=v1
-
-bash infra/01-criar-recursos.sh     # grupo, storage+blob, visão, ACR, ambiente
-bash infra/02-publicar-imagens.sh   # constrói as duas imagens dentro do ACR
-bash infra/03-implantar-apps.sh     # cria/atualiza os dois Container Apps
+bash infra/01-criar-recursos.sh      # bucket, ECR, cluster, logs, security group
+bash infra/02-publicar-imagens.sh    # docker build + push das duas imagens
+bash infra/03-implantar-apps.sh      # serviço ECS + IP público
 ```
 
-Ao final, o terceiro script imprime as duas URLs públicas.
+Ao final, o terceiro script imprime:
 
----
-
-## 2 · O que cada script faz, linha por linha
-
-### `infra/00-variaveis.sh`
-
-Não roda sozinho: os outros carregam com `source`. Concentra os nomes num lugar só.
-
-| Variável | Padrão | Observação |
-|---|---|---|
-| `SUFIXO` | `fiap01` | **o único que você precisa mudar** |
-| `REGIAO` | `eastus2` | decide quais serviços existem |
-| `GRUPO` | `rg-aula-05` | tudo mora aqui |
-| `VERSAO` | `v1` | etiqueta da imagem. **Nunca `latest`** |
-| `NIVEL_VISAO` | `F0` | gratuito, 20 chamadas/minuto |
-
-### `infra/01-criar-recursos.sh`
-
-Cria, nesta ordem (que é a ordem da dependência):
-
-1. Registra provedores e a extensão de Container Apps.
-2. **Grupo de recursos** `rg-aula-05`, com etiquetas de disciplina/aula/projeto.
-3. **Conta de armazenamento** `Standard_LRS`, TLS 1.2 mínimo, **sem acesso público**,
-   e o container privado `deteccoes`.
-4. **Recurso de visão** `ComputerVision`, nível `F0`, com subdomínio próprio.
-5. **Registro de containers** `Basic`, com usuário administrador ligado.
-6. **Ambiente de Container Apps** `cae-aula-05`.
-7. Grava o arquivo **`.env`** local já preenchido — e o `.env` está no `.gitignore`.
-
-O script **pede confirmação digitada** antes de criar qualquer coisa. Isso é de
-propósito: script que cria recurso sem perguntar é como você perde crédito dormindo.
-
-Note esta linha, que evita o erro mais comum do laboratório:
-
-```bash
-VISAO_ENDPOINT="${VISAO_ENDPOINT%/}"   # a Azure devolve com barra; a nossa API não aceita
 ```
-
-### `infra/02-publicar-imagens.sh`
-
-```bash
-az acr build --registry $ACR --image deva3-api:$VERSAO --file api/Dockerfile .
-az acr build --registry $ACR --image deva3-web:$VERSAO --file web/Dockerfile .
-```
-
-`az acr build` envia o contexto e **constrói na nuvem**. O aluno não precisa ter Docker
-instalado — é o atalho que salva a aula em laboratório com máquina travada.
-
-Repare no `.` final: o contexto é a **raiz do projeto**, não a pasta `api/`. Sem isso,
-o pacote `api` não entra na imagem e o container sobe com `ModuleNotFoundError`.
-
-### `infra/03-implantar-apps.sh`
-
-1. Lê endpoint e chaves dos recursos já criados (não repassa segredo por parâmetro).
-2. Cria ou atualiza `ca-deva3-api`:
-   - porta `8000`, entrada externa, `0,5 CPU / 1 Gi`
-   - `--min-replicas 0` → **escala a zero**: parado, não cobra
-   - chave e cadeia de conexão entram como **`--secrets`**, e as variáveis apontam
-     para eles com `secretref:` — nunca em texto puro
-3. Descobre a URL pública da API e cria/atualiza `ca-deva3-web` já com `API_URL` certa.
-4. Chama `GET /saude` para confirmar antes de dizer que terminou.
-
-### `infra/99-remover-tudo.sh`
-
-Lista o que vai ser apagado, **exige que você digite o nome do grupo** e então roda
-`az group delete`. É por isso que tudo foi para o mesmo grupo.
-
----
-
-## 3 · A alternativa declarativa: Bicep
-
-O `infra/principal.bicep` cria a mesma base de forma declarativa:
-
-```bash
-az group create -n rg-aula-05 -l eastus2
-az deployment group create -g rg-aula-05 \
-   --template-file infra/principal.bicep \
-   --parameters sufixo=fiap01
-```
-
-Os dois Container Apps ficam **fora** do Bicep de propósito: eles dependem de imagens
-que só existem depois do `az acr build`. Separar "infraestrutura" de "entrega da
-aplicação" é uma decisão de projeto, e vale explicar em aula.
-
-| | Script `.sh` | Bicep |
-|---|---|---|
-| Curva de aprendizado | baixa | média |
-| Rodar duas vezes | pode duplicar efeito | idempotente por natureza |
-| Ver o que vai mudar antes | não | `az deployment group what-if` |
-| Bom para | aula, protótipo | ambiente que vive |
-
----
-
-## 4 · Verificar
-
-> 🗺️ Quando algo falhar, localize primeiro **em qual seta** do
-> [diagrama de arquitetura](imagens/02-arquitetura.png) o problema está. É mais rápido
-> que ler log — e é o que o [manual dos diagramas](00-diagramas.md) treina.
-
-```bash
-# O que existe no grupo
-az resource list -g rg-aula-05 -o table
-
-# A API está de pé?
-URL_API=$(az containerapp show -n ca-deva3-api -g rg-aula-05 \
-          --query properties.configuration.ingress.fqdn -o tsv)
-curl -s https://$URL_API/saude | jq
-
-# Uma detecção de verdade
-curl -s -X POST "https://$URL_API/detectar?modo=pessoas&consentimento=true" \
-     -F "imagem=@foto.jpg" | jq '.total_detectado, .deteccoes[0]'
-
-# O que foi gravado no blob
-az storage blob list --account-name stdeva3$SUFIXO -c deteccoes \
-   --auth-mode login --query "[].name" -o tsv | head
-
-# Log da API
-az containerapp logs show -n ca-deva3-api -g rg-aula-05 --tail 50
+ Interface ...... http://54.x.x.x:8501
+ API (Swagger) .. http://54.x.x.x:8000/docs
+ Saúde .......... http://54.x.x.x:8000/saude
 ```
 
 ---
 
-## 5 · Atualizar para uma versão nova
+## 2 · O que cada script faz
+
+### `00-variaveis.sh` — carregado pelos outros
+
+Define `AWS_REGION`, `VERSAO`, os caminhos e os utilitários (`tf`, `saida`,
+`mostrar_alvo`). Não há `SUFIXO` para escolher: o Terraform sorteia um
+(`random_string`) e guarda no estado. Nome de bucket é único **no mundo**, e o
+sorteio evita a colisão entre colegas.
+
+### `01-criar-recursos.sh` — `terraform apply` sem o serviço
+
+| Recurso Terraform | O que é |
+|---|---|
+| `aws_s3_bucket.deteccoes` + bloqueio público + criptografia + **ciclo de vida** | onde ficam resultado e imagem (com consentimento). Expira em `retencao_dias` (7) |
+| `aws_ecr_repository.app["api"]` / `["web"]` | os dois registros, com *scan on push* e lifecycle de 5 imagens |
+| `aws_ecs_cluster.deva3` | o cluster (vazio até o passo 3) |
+| `aws_cloudwatch_log_group.deva3` | logs dos dois containers, 7 dias |
+| `aws_security_group.deva3` | portas 8000 e 8501 para `cidr_acesso` |
+| `aws_ecs_task_definition.deva3` | a "receita" da tarefa: 2 containers, LabRole, variáveis |
+
+O serviço (`aws_ecs_service`) fica de fora (`servico_ativo=false`): ele precisa de
+imagens que só existem depois do passo 2.
+
+### `02-publicar-imagens.sh` — build e push
+
+```bash
+aws ecr get-login-password | docker login --username AWS --password-stdin <registro>
+docker build -f api/Dockerfile -t <ecr_api>:v1 .
+docker build -f web/Dockerfile -t <ecr_web>:v1 .
+docker push ...
+```
+
+Repare no `-f api/Dockerfile .`: o contexto é a **raiz** do Lab, senão o pacote `api`
+não entra na imagem (armadilha registrada no `MEMORY.md`). E repare no login: ele usa
+a credencial da sessão — não existe usuário/senha de registro, ao contrário do
+`az acr credential show` da versão Azure.
+
+### `03-implantar-apps.sh` — o serviço
+
+1. `terraform apply -var servico_ativo=true` cria o serviço `deva3` (1 tarefa).
+2. `aws ecs update-service --force-new-deployment`: reenviar `v1` não muda a task
+   definition, e sem isso o ECS não pegaria a imagem nova.
+3. `aws ecs wait services-stable` espera a tarefa ficar saudável. A interface só sobe
+   depois que a API responde `/saude` (`dependsOn: HEALTHY` na task definition).
+4. ENI → IP público → as três URLs.
+
+### `99-remover-tudo.sh` — fim da aula
+
+Pede para digitar `apagar` e roda `terraform destroy`: serviço, cluster, imagens,
+logs e o bucket **com tudo dentro**. É o "jeito de apagar" que a LGPD exige.
+
+---
+
+## 3 · Publicar uma nova versão
 
 ```bash
 export VERSAO=v2
 bash infra/02-publicar-imagens.sh
-bash infra/03-implantar-apps.sh     # detecta que os apps existem e faz update
+bash infra/03-implantar-apps.sh
 ```
 
-O Container Apps cria uma **revisão** nova. Para voltar atrás:
-
-```bash
-az containerapp revision list -n ca-deva3-api -g rg-aula-05 -o table
-az containerapp revision activate -n ca-deva3-api -g rg-aula-05 --revision <nome>
-```
-
-💡 É por isso que a etiqueta nunca é `latest`: com `v1`, `v2`, `v3` você sabe o que
-está no ar e consegue voltar. Com `latest`, não.
+Etiqueta nova a cada versão: é o que permite voltar atrás
+(`VERSAO=v1 bash infra/03-implantar-apps.sh`). O **IP muda** a cada implantação — não
+há load balancer.
 
 ---
 
-## 6 · Apagar
+## 4 · Rodar a API local gravando no bucket da nuvem
+
+Útil para depurar sem rebuild. Na sua máquina (fora do CloudShell):
 
 ```bash
-bash infra/99-remover-tudo.sh
+cp .env.exemplo .env
+# ARMAZENAMENTO_BUCKET=<output bucket do Terraform>
+# Learner Lab → AWS Details → AWS CLI: Show → cole as 3 variáveis no terminal
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=...
+make api      # http://localhost:8000/docs
 ```
 
-E confira o gasto no dia seguinte. Custo do Azure aparece com atraso — não conclua
-"ficou de graça" dez minutos depois do teste.
+---
+
+## 5 · Quando dá errado
+
+| Sintoma | Causa provável | O que fazer |
+|---|---|---|
+| `Error: reading IAM Role (LabRole)` | não está no Learner Lab | `-var role_name=<sua role>` (com Rekognition, S3 e ECS) |
+| `no space left on device` no build | CloudShell com imagens antigas | `docker system prune -af` |
+| `services-stable` não termina | a tarefa cai em loop | o script mostra o `stoppedReason`; veja também `aws logs tail /ecs/deva3-<sufixo> --since 10m` |
+| `CannotPullContainerError` | etiqueta não publicada | rode o `02` com a mesma `VERSAO` |
+| interface diz "A API não respondeu" | container `api` caiu | logs do stream `deva3/api/...` |
+| `ExpiredTokenException` na API **local** | sessão do Learner Lab venceu (4 h) | copie as credenciais de novo |
+| `AccessDeniedException` no Rekognition | sessão do Lab encerrada, ou role errada | confira a bolinha verde e o `taskRoleArn` |
+| página não abre | IP mudou, ou `cidr_acesso` não inclui você | rode o `03` de novo; confira o SG |
+
+> Regra de bolso: localize o problema **no diagrama** antes de abrir o log. Seta 3
+> (pull), seta 5 (API_URL) ou seta 6 (credencial) — cada uma tem um sintoma
+> diferente.

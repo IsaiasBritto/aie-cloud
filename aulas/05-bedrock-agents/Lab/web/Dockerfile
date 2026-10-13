@@ -2,7 +2,7 @@
 #
 #   docker build -f web/Dockerfile -t deva3-web:v1 .
 
-FROM python:3.12-slim
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

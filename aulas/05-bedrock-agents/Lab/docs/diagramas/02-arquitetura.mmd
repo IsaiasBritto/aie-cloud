@@ -3,34 +3,36 @@ title: Deva3 — Diagrama de arquitetura e implantação
 ---
 flowchart LR
 
-    dev["<b>Máquina do aluno</b><br/><span style='font-size:13px'>git · az CLI<br/>Docker é opcional</span>"]
+    dev["<b>CloudShell</b><br/><span style='font-size:13px'>git · terraform · docker<br/>credencial da sessão</span>"]
 
-    subgraph rg["ASSINATURA AZURE · grupo de recursos rg-aula-05"]
+    subgraph conta["CONTA AWS · us-east-1 · tags projeto=deva3"]
         direction TB
 
-        subgraph acrbox["Registro de contêiner · acrdeva3&lt;sufixo&gt;"]
-            imgapi["<b>deva3-api:v1</b><br/><span style='font-size:12px'>FastAPI + Uvicorn</span>"]
-            imgweb["<b>deva3-web:v1</b><br/><span style='font-size:12px'>Streamlit</span>"]
+        subgraph ecrbox["Amazon ECR · deva3-[sufixo]-api / -web"]
+            imgapi["<b>api:v1</b><br/><span style='font-size:12px'>FastAPI + Uvicorn</span>"]
+            imgweb["<b>web:v1</b><br/><span style='font-size:12px'>Streamlit</span>"]
         end
 
-        subgraph cae["Ambiente de Container Apps · cae-aula-05"]
+        subgraph ecs["ECS Fargate · 1 tarefa · 0,5 vCPU · 1 GB · LabRole"]
             direction TB
-            appweb["<b>ca-deva3-web</b><br/>porta 8501 · ingresso externo<br/><span style='font-size:12px'>0,5 vCPU · 1 GiB · min 0 réplicas</span>"]
-            appapi["<b>ca-deva3-api</b><br/>porta 8000 · ingresso externo<br/><span style='font-size:12px'>segredos: visao-chave, armazenamento-conexao</span>"]
+            appweb["<b>container web</b><br/>porta 8501 · IP público<br/><span style='font-size:12px'>API_URL=http://localhost:8000</span>"]
+            appapi["<b>container api</b><br/>porta 8000<br/><span style='font-size:12px'>nenhuma chave: usa a task role</span>"]
         end
 
-        visao["<b>cv-deva3-&lt;sufixo&gt;</b><br/>Pesquisa Visual Computacional<br/><span style='font-size:12px'>Faixa Free F0 · 20 chamadas/min</span>"]
-        storage["<b>stdeva3&lt;sufixo&gt;</b><br/>Conta de armazenamento<br/><span style='font-size:12px'>contêiner privado deteccoes</span>"]
+        rek["<b>Amazon Rekognition</b><br/>DetectLabels · DetectFaces<br/><span style='font-size:12px'>pago por imagem · sem recurso a criar</span>"]
+        s3["<b>S3 · deva3-[sufixo]-deteccoes</b><br/>privado · criptografado<br/><span style='font-size:12px'>ciclo de vida: expira em 7 dias</span>"]
+        logs["<b>CloudWatch Logs</b><br/>/ecs/deva3-[sufixo]<br/><span style='font-size:12px'>retenção 7 dias</span>"]
     end
 
-    navegador["<b>Navegador</b><br/><span style='font-size:13px'>HTTPS</span>"]
+    navegador["<b>Navegador</b><br/><span style='font-size:13px'>http://IP:8501</span>"]
 
-    dev -->|"1 · az acr build<br/>constrói NA NUVEM"| acrbox
-    acrbox -->|"2 · az containerapp create/update"| cae
-    navegador -->|"3 · abre a interface"| appweb
-    appweb -->|"4 · POST /detectar<br/>API_URL"| appapi
-    appapi -->|"5 · imageanalysis:analyze?features=people"| visao
-    appapi -->|"6 · upload do blob<br/>com consentimento"| storage
+    dev -->|"1 · terraform apply<br/>2 · docker build + push"| ecrbox
+    ecrbox -->|"3 · pull na partida<br/>(execution role)"| ecs
+    navegador -->|"4 · abre a interface"| appweb
+    appweb -->|"5 · POST /detectar<br/>localhost"| appapi
+    appapi -->|"6 · detect_labels / detect_faces"| rek
+    appapi -->|"7 · put_object<br/>com consentimento"| s3
+    ecs -.->|"stdout"| logs
 
     classDef externo fill:#22161B,stroke:#EB0B4F,stroke-width:2px,color:#F4F3EF
     classDef app fill:#12222A,stroke:#03E3FD,stroke-width:2px,color:#F4F3EF
@@ -39,9 +41,9 @@ flowchart LR
 
     class dev,navegador externo
     class appapi,appweb app
-    class visao,storage servico
+    class rek,s3,logs servico
     class imgapi,imgweb imagem
 
-    style rg fill:#191920,stroke:#EB0B4F,stroke-width:1.5px,color:#EB0B4F
-    style cae fill:#16161C,stroke:#03E3FD,stroke-width:1px,color:#03E3FD
-    style acrbox fill:#16161C,stroke:#3A3A46,stroke-width:1px,color:#7A7872
+    style conta fill:#191920,stroke:#EB0B4F,stroke-width:1.5px,color:#EB0B4F
+    style ecs fill:#16161C,stroke:#03E3FD,stroke-width:1px,color:#03E3FD
+    style ecrbox fill:#16161C,stroke:#3A3A46,stroke-width:1px,color:#7A7872

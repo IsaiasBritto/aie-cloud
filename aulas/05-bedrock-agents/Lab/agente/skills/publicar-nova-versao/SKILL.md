@@ -1,6 +1,6 @@
 ---
 name: publicar-nova-versao
-description: Publica uma nova versão do Deva3 construindo as imagens da API e da interface no Azure Container Registry e atualizando os dois Container Apps do grupo rg-aula-05.
+description: Publica uma nova versão do Deva3 construindo as imagens da API e da interface, enviando ao Amazon ECR e atualizando a tarefa do serviço ECS Fargate deva3.
 ---
 
 # Publicar nova versão do Deva3
@@ -12,8 +12,8 @@ para experimentar: para experimentar existe `docker compose up`.
 
 ## Pré-requisitos
 
-- `az login` feito e a assinatura certa selecionada (`az account show`).
-- Grupo `rg-aula-05` já provisionado (skill `provisionar-ambiente-da-aula`).
+- Ambiente provisionado (skill `provisionar-ambiente-da-aula`).
+- CloudShell com a credencial da sessão (`aws sts get-caller-identity`).
 - `python -m pytest` verde.
 - Uma etiqueta de versão decidida: `v1`, `v2`… nunca `latest`.
 
@@ -22,55 +22,45 @@ para experimentar: para experimentar existe `docker compose up`.
 1. **Confirmar que dá para publicar.**
    ```bash
    python -m pytest
-   az account show --query "{assinatura:name, id:id}" -o table
+   aws sts get-caller-identity --query Arn --output text
    ```
-   Testes vermelhos ou assinatura errada → pare aqui.
+   Testes vermelhos ou conta errada → pare aqui.
 
 2. **Pedir confirmação ao professor.** Publicar altera o ambiente da aula. O
    `AGENTS.md` §6 proíbe fazer isso sozinho. Diga qual etiqueta será publicada e espere
    o "pode ir".
 
-3. **Construir as imagens no próprio ACR** (não precisa de Docker na sua máquina):
+3. **Construir e enviar as imagens** (o CloudShell tem Docker):
    ```bash
-   az acr build --registry $ACR --image deva3-api:$VERSAO --file api/Dockerfile .
-   az acr build --registry $ACR --image deva3-web:$VERSAO --file web/Dockerfile .
+   export VERSAO=v2
+   bash infra/02-publicar-imagens.sh
    ```
 
-4. **Atualizar a API** e esperar a revisão ficar saudável:
+4. **Implantar** — atualiza a task definition, força o deploy e espera estabilizar:
    ```bash
-   az containerapp update -n ca-deva3-api -g rg-aula-05 \
-      --image $ACR.azurecr.io/deva3-api:$VERSAO
+   bash infra/03-implantar-apps.sh
    ```
 
-5. **Atualizar a interface**, apontando para a URL pública da API:
+5. **Verificar de fora**, como o aluno vai ver (o IP é o que o script imprimiu):
    ```bash
-   URL_API=$(az containerapp show -n ca-deva3-api -g rg-aula-05 \
-             --query properties.configuration.ingress.fqdn -o tsv)
-   az containerapp update -n ca-deva3-web -g rg-aula-05 \
-      --image $ACR.azurecr.io/deva3-web:$VERSAO \
-      --set-env-vars API_URL=https://$URL_API
-   ```
-
-6. **Verificar de fora**, como o aluno vai ver:
-   ```bash
-   curl -s https://$URL_API/saude | jq
+   curl -s http://$IP:8000/saude | jq
    ```
 
 ## Verificação antes de dizer que terminou
 
-- [ ] `GET /saude` responde `200` e lista pelo menos o modo `pessoas`
+- [ ] `GET /saude` responde `200` e lista os modos `pessoas` e `rostos`
 - [ ] A interface abre e o seletor de modo aparece preenchido
 - [ ] Uma foto de teste retorna caixa e confiança
-- [ ] Nenhuma variável de ambiente com segredo apareceu em log ou no terminal
+- [ ] Nenhuma credencial apareceu em log ou no terminal
 - [ ] A etiqueta publicada foi anotada em `MEMORY.md` com a data
 
 ## Saída
 
-Duas URLs públicas (API e interface) e a etiqueta publicada.
+Duas URLs públicas (interface e API) e a etiqueta publicada.
 
 ## Armadilhas
 
 - Publicar `latest`: ninguém consegue voltar atrás depois. Sempre `vN`.
-- Esquecer de atualizar `API_URL` na interface: a tela sobe e não fala com a API.
-- Trocar a imagem sem checar `/saude`: o container pode subir e falhar só na primeira
-  requisição, e você descobre em sala.
+- Reenviar a mesma etiqueta e não forçar o deploy: o ECS segue com a imagem antiga.
+  O `03-implantar-apps.sh` já força — não pule o script.
+- O IP muda a cada implantação: atualize o slide.

@@ -1,8 +1,8 @@
 """Testes do Deva3.
 
-Não chamam a Azure: usam respostas gravadas. O objetivo é garantir que a
-interpretação do payload e as regras de limiar continuem certas depois de
-qualquer mudança.
+Não chamam a AWS: usam respostas no formato do Rekognition. O objetivo é
+garantir que a interpretação do payload (proporção → pixels, 0–100 → 0–1) e as
+regras de limiar continuem certas depois de qualquer mudança.
 
     python -m pytest api/testes -v
 """
@@ -16,30 +16,35 @@ from PIL import Image
 
 from api.erros import ImagemGrandeDemais, ImagemInvalida
 from api.modelos import CaixaDelimitadora
-from api.principal import _validar_imagem
-from api.servicos.detector_rostos import ServicoFaceAzure
-from api.servicos.detector_visao import ServicoVisaoAzure
+from api.principal import _para_formato_do_rekognition, _validar_imagem
+from api.servicos.detector_pessoas import ServicoPessoasRekognition, caixa_em_pixels
+from api.servicos.detector_rostos import ServicoRostosRekognition
 
-# ── respostas reais, copiadas da documentação da Azure ───────────────────
+# ── respostas no formato da documentação do Rekognition ──────────────────
 
-RESPOSTA_VISAO = {
-    "modelVersion": "2024-02-01",
-    "metadata": {"width": 300, "height": 231},
-    "peopleResult": {
-        "values": [
-            {"boundingBox": {"x": 0, "y": 41, "w": 95, "h": 189}, "confidence": 0.9474},
-            {"boundingBox": {"x": 130, "y": 60, "w": 70, "h": 150}, "confidence": 0.4212},
-        ]
-    },
+RESPOSTA_PESSOAS = {
+    "Labels": [
+        {
+            "Name": "Person",
+            "Confidence": 99.2,
+            "Instances": [
+                {"BoundingBox": {"Width": 0.3167, "Height": 0.8182, "Left": 0.0, "Top": 0.1775},
+                 "Confidence": 94.74},
+                {"BoundingBox": {"Width": 0.2333, "Height": 0.6494, "Left": 0.4333, "Top": 0.2597},
+                 "Confidence": 42.12},
+            ],
+        }
+    ],
+    "LabelModelVersion": "3.0",
 }
 
-RESPOSTA_FACE = [
-    {
-        "faceRectangle": {"top": 54, "left": 394, "width": 78, "height": 78},
-        "faceAttributes": {"qualityForRecognition": "high",
-                           "blur": {"blurLevel": "low", "value": 0.06}},
-    }
-]
+RESPOSTA_ROSTOS = {
+    "FaceDetails": [
+        {"BoundingBox": {"Width": 0.13, "Height": 0.26, "Left": 0.6567, "Top": 0.2338},
+         "Confidence": 99.98,
+         "Quality": {"Brightness": 81.2, "Sharpness": 92.2}}
+    ]
+}
 
 
 def _imagem_valida(largura: int = 120, altura: int = 90) -> bytes:
@@ -48,12 +53,11 @@ def _imagem_valida(largura: int = 120, altura: int = 90) -> bytes:
     return buffer.getvalue()
 
 
-# ── interpretação do payload de visão ────────────────────────────────────
+# ── interpretação do payload de pessoas ──────────────────────────────────
 
-def teste_visao_interpreta_caixas_e_confianca():
-    servico = ServicoVisaoAzure(endpoint="https://exemplo.cognitiveservices.azure.com",
-                                chave="chave-de-teste")
-    achados, dimensoes = servico._interpretar(RESPOSTA_VISAO)
+def teste_pessoas_converte_proporcao_em_pixels_e_confianca():
+    servico = ServicoPessoasRekognition(regiao="us-east-1")
+    achados, dimensoes = servico._interpretar(RESPOSTA_PESSOAS, 300, 231)
 
     assert dimensoes == (300, 231)
     assert len(achados) == 2
@@ -61,44 +65,59 @@ def teste_visao_interpreta_caixas_e_confianca():
     caixa, confianca = achados[0]
     assert isinstance(caixa, CaixaDelimitadora)
     assert (caixa.x, caixa.y, caixa.largura, caixa.altura) == (0, 41, 95, 189)
-    assert confianca == pytest.approx(0.9474, abs=1e-4)
+    assert confianca == pytest.approx(0.9474, abs=1e-4)  # 94.74 / 100
 
 
-def teste_visao_ordena_da_maior_para_a_menor_confianca():
-    servico = ServicoVisaoAzure(endpoint="https://exemplo.cognitiveservices.azure.com",
-                                chave="chave-de-teste")
-    achados, _ = servico._interpretar(RESPOSTA_VISAO)
+def teste_pessoas_ordena_da_maior_para_a_menor_confianca():
+    servico = ServicoPessoasRekognition(regiao="us-east-1")
+    achados, _ = servico._interpretar(RESPOSTA_PESSOAS, 300, 231)
     confiancas = [confianca for _, confianca in achados]
     assert confiancas == sorted(confiancas, reverse=True)
 
 
-def teste_visao_sem_pessoas_devolve_lista_vazia():
-    servico = ServicoVisaoAzure(endpoint="https://exemplo.cognitiveservices.azure.com",
-                                chave="chave-de-teste")
-    achados, _ = servico._interpretar({"metadata": {"width": 10, "height": 10}})
+def teste_pessoas_ignora_outros_rotulos_e_lista_vazia():
+    servico = ServicoPessoasRekognition(regiao="us-east-1")
+    achados, _ = servico._interpretar({"Labels": [{"Name": "Chair", "Instances": [
+        {"BoundingBox": {"Width": 0.5, "Height": 0.5, "Left": 0, "Top": 0}, "Confidence": 99}]}]}, 10, 10)
     assert achados == []
+    assert servico._interpretar({}, 10, 10)[0] == []
+
+
+def teste_caixa_nunca_sai_da_imagem():
+    caixa = caixa_em_pixels({"Width": 0.5, "Height": 0.5, "Left": 0.8, "Top": -0.1}, 100, 100)
+    assert caixa.x == 80 and caixa.y == 0
+    assert caixa.x + caixa.largura <= 100
 
 
 # ── interpretação do payload de rostos ───────────────────────────────────
 
-def teste_face_converte_retangulo_para_o_nosso_formato():
-    servico = ServicoFaceAzure(endpoint="https://exemplo.cognitiveservices.azure.com",
-                               chave="chave-de-teste")
-    achados, _ = servico._interpretar(RESPOSTA_FACE)
+def teste_rostos_tem_confianca_real():
+    servico = ServicoRostosRekognition(regiao="us-east-1")
+    achados, _ = servico._interpretar(RESPOSTA_ROSTOS, 600, 300)
 
     caixa, nota = achados[0]
-    # O Face usa left/top; o nosso contrato usa x/y.
-    assert (caixa.x, caixa.y, caixa.largura, caixa.altura) == (394, 54, 78, 78)
-    assert nota == 0.95  # derivada de qualityForRecognition = high
+    assert (caixa.x, caixa.y, caixa.largura, caixa.altura) == (394, 70, 78, 78)
+    assert nota == pytest.approx(0.9998, abs=1e-4)
 
 
-def teste_face_sem_qualidade_devolve_confianca_nula():
-    servico = ServicoFaceAzure(endpoint="https://exemplo.cognitiveservices.azure.com",
-                               chave="chave-de-teste")
-    achados, _ = servico._interpretar([{"faceRectangle":
-                                        {"top": 1, "left": 2, "width": 3, "height": 4}}])
+def teste_rostos_sem_confianca_devolve_nulo():
+    servico = ServicoRostosRekognition(regiao="us-east-1")
+    achados, _ = servico._interpretar(
+        {"FaceDetails": [{"BoundingBox": {"Width": 0.1, "Height": 0.1, "Left": 0, "Top": 0}}]}, 10, 10)
     _, nota = achados[0]
     assert nota is None
+
+
+# ── conversão de formato ─────────────────────────────────────────────────
+
+def teste_png_passa_direto_e_bmp_vira_png():
+    png = _imagem_valida()
+    assert _para_formato_do_rekognition(png, "image/png") is png
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (100, 100), (1, 2, 3)).save(buffer, format="BMP")
+    convertido = _para_formato_do_rekognition(buffer.getvalue(), "image/bmp")
+    assert convertido[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 # ── validação da imagem ──────────────────────────────────────────────────

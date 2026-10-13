@@ -1,16 +1,17 @@
 # Deva3 · API de Validação Biométrica Básica
 
 > **FIAP · MBA AI Engineering & Multi-Agents · Cloud & Cognitive Environments · Aula 05**
-> Prof. Isaias S. Britto · agosto de 2026
+> Prof. Isaias S. Britto · versão AWS, outubro de 2026
 
 Um backend simples e isolado que recebe uma foto e devolve **as coordenadas das
-detecções com a pontuação de confiança** do serviço cognitivo da Azure — mais uma
+detecções com a pontuação de confiança** do **Amazon Rekognition** — mais uma
 interface web para o aluno enviar a própria foto e ver o resultado na hora.
+Roda inteiro no **AWS Academy Learner Lab**.
 
 ```
-   foto  →  [ Streamlit ]  →  [ FastAPI ]  →  [ Azure AI Vision ]  →  JSON
+   foto  →  [ Streamlit ]  →  [ FastAPI ]  →  [ Amazon Rekognition ]  →  JSON
                                     │
-                                    └────────→  [ Blob Storage ]  (com consentimento)
+                                    └────────→  [ Amazon S3 ]  (imagem só com consentimento)
 ```
 
 > 🗺️ **Comece pelos diagramas.** Contexto, arquitetura e sequência estão em
@@ -24,10 +25,10 @@ interface web para o aluno enviar a própria foto e ver o resultado na hora.
 
 ## O que ele faz — e o que não faz
 
-**Faz:** recebe a imagem, chama o **Azure AI Vision · Image Analysis 4.0**
-(`features=people`), devolve `boundingBox` + `confidence`, desenha a caixa sobre a foto
-e guarda imagem e resultado no Blob quando há consentimento. Opcionalmente usa o
-**Azure AI Face**, quando a assinatura tem o recurso aprovado.
+**Faz:** recebe a imagem, chama o **Rekognition · DetectLabels** (rótulo `Person`) ou o
+**DetectFaces**, converte a caixa de proporção para pixels e a confiança de 0–100 para
+0–1, desenha a caixa sobre a foto e guarda o resultado no S3 (a imagem, só com
+consentimento).
 
 **Não faz, e isso é decisão de projeto:** não identifica ninguém, não compara rostos,
 não guarda template biométrico e não infere idade, gênero ou emoção.
@@ -38,8 +39,10 @@ não guarda template biométrico e não infere idade, gênero ou emoção.
 
 ```bash
 git clone https://github.com/IsaiasBritto/aie-cloud.git
-cd aie-cloud/aulas/05-foundry-agents/Lab
-cp .env.exemplo .env          # preencha VISAO_ENDPOINT e VISAO_CHAVE
+cd aie-cloud/aulas/05-bedrock-agents/Lab
+cp .env.exemplo .env
+# credencial do Learner Lab: AWS Details → AWS CLI: Show → cole no terminal
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=...
 docker compose up --build
 ```
 
@@ -74,7 +77,7 @@ Resposta (recortada):
 {
   "identificador": "9f2c41ab77de",
   "modo": "pessoas",
-  "servico": "Azure AI Vision · Image Analysis 4.0 (features=people)",
+  "servico": "Amazon Rekognition · DetectLabels (Person)",
   "dimensoes": { "largura": 1280, "altura": 960 },
   "limiar_confianca": 0.6,
   "total_detectado": 2,
@@ -90,7 +93,7 @@ Resposta (recortada):
   ],
   "duracao_ms": 412,
   "imagem_persistida": true,
-  "caminho_blob": "deteccoes/2026/08/30/9f2c41ab77de",
+  "caminho_armazenamento": "s3://deva3-k3x9qa-deteccoes/deteccoes/2026/10/12/9f2c41ab77de",
   "avisos": []
 }
 ```
@@ -99,10 +102,10 @@ Erros saem sempre no mesmo formato, com o campo que resolve a dúvida:
 
 ```json
 {
-  "erro": "servico_nao_configurado",
-  "mensagem": "O serviço Azure AI Face não está configurado nesta instância.",
-  "detalhe": null,
-  "como_resolver": "Use ?modo=pessoas, que funciona com qualquer chave de Vision."
+  "erro": "falha_de_integracao",
+  "mensagem": "Amazon Rekognition · DetectLabels (Person) devolveu ExpiredTokenException (HTTP 400).",
+  "detalhe": "An error occurred (ExpiredTokenException) ...",
+  "como_resolver": "A sessão do Learner Lab expirou (4 h). Copie as credenciais novas de AWS Details."
 }
 ```
 
@@ -110,18 +113,22 @@ Erros saem sempre no mesmo formato, com o campo que resolve a dúvida:
 
 | | `modo=pessoas` (padrão) | `modo=rostos` |
 |---|---|---|
-| Serviço | Azure AI Vision · Image Analysis 4.0 | Azure AI Face · `/face/v1.2/detect` |
-| Precisa de aprovação? | **Não** | **Sim** — Acesso Limitado |
-| Devolve confiança? | **Sim**, 0 a 1 | **Não.** Derivamos de `qualityForRecognition` |
+| Chamada | `rekognition.detect_labels` filtrado em `Person` | `rekognition.detect_faces` |
+| Precisa de aprovação? | **Não** | **Não** (detecção; *identificação* é outra API) |
+| Devolve confiança? | **Sim**, 0–100 → a API divide por 100 | **Sim**, 0–100 → idem |
+| Formato da caixa | proporção (0–1) → a API converte para pixels | idem |
 | O que a caixa cerca | a pessoa | o rosto |
-| Quando usar | sempre, em aula | só com recurso aprovado |
+
+> Comparação que rende aula: no Azure AI Face, a detecção exigia Acesso Limitado e
+> **não devolvia confiança**. No Rekognition, detectar rosto é livre e vem com
+> confiança — o que é restrito (e o Deva3 não usa) é **comparar e buscar** rostos.
 
 ---
 
 ## Estrutura
 
 ```
-aulas/05-foundry-agents/Lab/
+aulas/05-bedrock-agents/Lab/
 ├── AGENTS.md              A alma do agente (leia primeiro)
 ├── MEMORY.md              O que já foi aprendido — lido no início de toda sessão
 ├── api/                   Backend FastAPI
@@ -130,14 +137,14 @@ aulas/05-foundry-agents/Lab/
 │   ├── modelos.py         Contrato de dados
 │   ├── erros.py           Erros com "como_resolver"
 │   ├── servicos/          Uma classe por integração
-│   └── testes/            15 testes, sem rede
+│   └── testes/            20 testes, sem rede
 ├── web/aplicacao.py       Interface Streamlit
-├── infra/                 Scripts az CLI + Bicep
+├── infra/                 Scripts bash + Terraform (S3, ECR, ECS Fargate)
 ├── agente/                Artefatos do agente
 │   └── skills/            Três procedimentos salvos (SKILL.md)
 └── docs/
     ├── 00-diagramas.md    Contexto · arquitetura · sequência
-    ├── 01-manual-portal.md
+    ├── 01-manual-console.md
     ├── 02-manual-script.md
     ├── 03-passo-a-passo-do-zero.md
     ├── diagramas/         Fonte Mermaid (.mmd) + tema FIAP
@@ -145,47 +152,48 @@ aulas/05-foundry-agents/Lab/
 ```
 
 Todo identificador que **nós** criamos está em português. Ficam em inglês apenas as
-bibliotecas, os campos que a Azure devolve (`boundingBox`, `faceRectangle`) e os termos
-de infra consagrados (Dockerfile, Blob, Container App).
+bibliotecas, os campos que a AWS devolve (`BoundingBox`, `FaceDetails`) e os termos
+de infra consagrados (Dockerfile, bucket, task definition).
 
 ---
 
-## Publicar na Azure
+## Publicar na AWS (Learner Lab)
 
-Antes de abrir o portal, veja os desenhos:
+Antes de abrir o console, veja os desenhos:
 
 - **Os três diagramas** → [`docs/00-diagramas.md`](docs/00-diagramas.md)
 
-Duas trilhas, mesmo resultado:
+Duas trilhas:
 
-- **Pelo portal, tela a tela** → [`docs/01-manual-portal.md`](docs/01-manual-portal.md)
-- **Por script (`az` + Bicep)** → [`docs/02-manual-script.md`](docs/02-manual-script.md)
+- **Por script (Terraform + Docker, no CloudShell)** → [`docs/02-manual-script.md`](docs/02-manual-script.md)
+- **O que foi criado, tela a tela no console** → [`docs/01-manual-console.md`](docs/01-manual-console.md)
 
 Como o projeto foi construído, passo a passo →
 [`docs/03-passo-a-passo-do-zero.md`](docs/03-passo-a-passo-do-zero.md)
 
-Resumo da trilha por script:
+Resumo da trilha por script (no CloudShell):
 
 ```bash
-export SUFIXO=fiap01
-bash infra/01-criar-recursos.sh     # rg-aula-05, storage+blob, visão, ACR, ambiente
-bash infra/02-publicar-imagens.sh   # az acr build das duas imagens
-bash infra/03-implantar-apps.sh     # ca-deva3-api + ca-deva3-web
+bash infra/01-criar-recursos.sh     # terraform: bucket, ECR, cluster, logs, SG
+bash infra/02-publicar-imagens.sh   # docker build + push das duas imagens
+bash infra/03-implantar-apps.sh     # serviço ECS (1 tarefa, 2 containers) + IP público
 # ... aula ...
-bash infra/99-remover-tudo.sh       # apaga o grupo inteiro
+bash infra/99-remover-tudo.sh       # terraform destroy
 ```
 
 ### Recursos criados
 
 | Recurso | Nome | Para quê |
 |---|---|---|
-| Grupo de recursos | `rg-aula-05` | A pasta que apaga tudo de uma vez |
-| Conta de armazenamento | `stdeva3<sufixo>` | Container privado `deteccoes` |
-| Visão computacional | `cv-deva3-<sufixo>` | O cérebro (F0 gratuito) |
-| Registro de containers | `acrdeva3<sufixo>` | Guarda as duas imagens |
-| Ambiente de Container Apps | `cae-aula-05` | Onde os apps rodam |
-| Container App · API | `ca-deva3-api` | Porta 8000 |
-| Container App · interface | `ca-deva3-web` | Porta 8501 |
+| Bucket S3 | `deva3-<sufixo>-deteccoes` | Privado, criptografado, expira em 7 dias |
+| Repositórios ECR | `deva3-<sufixo>-api` / `-web` | Guardam as duas imagens |
+| Cluster ECS | `deva3-<sufixo>-cluster` | Onde a tarefa roda |
+| Serviço ECS | `deva3` | 1 tarefa Fargate: container `api` (8000) + `web` (8501) |
+| Log group | `/ecs/deva3-<sufixo>` | stdout dos dois containers, 7 dias |
+| Security group | `deva3-<sufixo>-web` | Portas 8000 e 8501 |
+| Rekognition | — | Nada a criar: API pronta, paga por imagem |
+
+O `<sufixo>` é sorteado pelo Terraform: nome de bucket é único no mundo.
 
 ---
 
@@ -197,25 +205,26 @@ Este projeto foi desenhado para ensinar isso, não para contorná-lo:
 - a interface pede **consentimento explícito** antes de gravar a imagem;
 - sem consentimento, apenas o **JSON do resultado** é gravado;
 - `PERSISTIR_IMAGENS=false` desliga a gravação por completo;
-- o container do Blob é **privado**, sem acesso anônimo;
-- o laboratório termina com `az group delete` — retenção do dado da aula é **o tempo
-  da aula**;
+- o bucket é **privado** (Block Public Access) e **criptografado**;
+- regra de **ciclo de vida** apaga tudo em `deteccoes/` em 7 dias, mesmo que ninguém
+  lembre — e o laboratório termina com `terraform destroy`;
 - nenhuma foto entra no repositório: o `.gitignore` bloqueia `*.jpg` e `*.png`.
 
-O próprio portal da Azure avisa, na tela de criação do recurso de visão, que o serviço
-processa **Dados Biométricos** e que **o cliente é responsável** por cumprir as
-obrigações do DPA. Quem clica em "aceito" é você.
+Os termos de serviço do Rekognition deixam claro que, ao processar rosto, **o cliente
+é responsável** por avisar e obter consentimento das pessoas na imagem. Quem chama a
+API é você — e a responsabilidade vem junto.
 
 ---
 
 ## Testes
 
 ```bash
-python -m pytest          # 15 testes, nenhum toca a rede
+python -m pytest          # 20 testes, nenhum toca a rede
 ```
 
-Eles usam payloads reais copiados da documentação da Azure e cobrem a interpretação dos
-dois formatos, a ordenação por confiança, a validação da imagem e a regra do limiar.
+Eles usam payloads no formato da documentação do Rekognition e cobrem a conversão de
+proporção para pixels, a escala da confiança, a conversão BMP → PNG, a validação da
+imagem, a regra do limiar e o `POST /detectar` de ponta a ponta (com um boto3 falso).
 
 ---
 

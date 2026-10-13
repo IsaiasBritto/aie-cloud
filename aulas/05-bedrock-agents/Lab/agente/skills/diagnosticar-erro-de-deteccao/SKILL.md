@@ -34,11 +34,11 @@ desenhada ou confiança estranha.
    |---|---|---|
    | 400 | Arquivo não é imagem, ou tipo não aceito | Reenviar em JPEG/PNG |
    | 413 | Foto acima do limite | Reduzir resolução ou ajustar `TAMANHO_MAXIMO_MB` |
-   | 401 | Chave de outro recurso | Recopiar em Chaves e Ponto de Extremidade |
-   | 403 no modo `rostos` | Acesso Limitado do Face | Usar `?modo=pessoas` |
-   | 404 | Endpoint com barra no fim ou host errado | Corrigir `VISAO_ENDPOINT` |
-   | 429 | Cota do F0 estourada (20 req/min) | Esperar 1 minuto; combinar rodadas |
-   | 502 | A API não conseguiu falar com a Azure | Ver `detalhe`; checar saída de rede |
+   | 502 + `ExpiredToken` | Sessão do Learner Lab venceu (rodando local) | Copiar credenciais novas de AWS Details |
+   | 502 + `AccessDenied` | Lab encerrado, ou task role errada | Conferir bolinha verde e `taskRoleArn` |
+   | 502 + `InvalidImageFormat` | Formato que escapou da conversão | Reenviar em JPEG/PNG |
+   | 502 + `Throttling` | Turma inteira clicando junto | Esperar alguns segundos |
+   | 502 (outros) | A API não conseguiu falar com a AWS | Ver `detalhe`; checar saída de rede |
    | 503 | Serviço não configurado | Ver passo 1 |
 
 4. **Se o HTTP foi 200 mas veio zero detecção**, isso **não é erro**. Verifique, nesta
@@ -51,7 +51,8 @@ desenhada ou confiança estranha.
 
 6. **Só agora abra o log do container:**
    ```bash
-   az containerapp logs show -n ca-deva3-api -g rg-aula-05 --tail 100
+   aws logs tail "$(terraform -chdir=infra/terraform output -raw log_group)" \
+     --since 15m --log-stream-name-prefix deva3/api
    ```
 
 7. **Reproduza fora da interface**, para separar frontend de backend:
@@ -69,6 +70,6 @@ desenhada ou confiança estranha.
 
 ## Armadilhas
 
-- Trocar a chave achando que é 401 quando na verdade é 404 por barra no endpoint.
+- Culpar o código quando a sessão do Learner Lab expirou — leia o código do erro no `detalhe`.
 - Mexer no código antes de olhar `/saude`.
 - Tratar "nenhuma detecção" como defeito. Não é.

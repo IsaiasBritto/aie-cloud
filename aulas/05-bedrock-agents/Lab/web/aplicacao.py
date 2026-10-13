@@ -144,28 +144,28 @@ with st.sidebar:
         )
         modos = estado.get("modos_disponiveis") or ["pessoas"]
         st.caption(f"Limiar de confiança: **{estado.get('limiar_confianca')}**")
-        st.caption(f"Blob configurado: **{estado.get('armazenamento_configurado')}**")
+        st.caption(f"S3 configurado: **{estado.get('armazenamento_configurado')}**")
 
     st.markdown('<div class="rotulo">Configuração</div>', unsafe_allow_html=True)
     modo = st.radio(
         "Modo de detecção",
         options=modos,
-        format_func=lambda m: ("Pessoas · Image Analysis 4.0" if m == "pessoas"
-                               else "Rostos · Azure AI Face"),
-        help=("'pessoas' devolve caixa e confiança de verdade. "
-              "'rostos' devolve o retângulo do rosto, mas sem confiança de detecção."),
+        format_func=lambda m: ("Pessoas · Rekognition DetectLabels" if m == "pessoas"
+                               else "Rostos · Rekognition DetectFaces"),
+        help=("'pessoas' devolve uma caixa por pessoa (corpo inteiro). "
+              "'rostos' devolve uma caixa por rosto. Os dois com confiança do detector."),
     )
 
     st.markdown('<div class="rotulo">Consentimento</div>', unsafe_allow_html=True)
     consentimento = st.checkbox(
-        "Autorizo guardar esta imagem no Blob Storage",
+        "Autorizo guardar esta imagem no S3",
         value=False,
         help=("Imagem de rosto é dado pessoal sensível (LGPD, art. 5º, II). "
               "Sem esta autorização, apenas o resultado em JSON é gravado."),
     )
     st.caption(
         "Sem consentimento, a foto **não** é gravada — só o JSON do resultado. "
-        "No fim da aula, o grupo de recursos inteiro é apagado."
+        "O bucket apaga tudo sozinho em 7 dias, e no fim da aula é removido."
     )
 
 # ──────────────────────────────── conteúdo ───────────────────────────────
@@ -191,7 +191,7 @@ with coluna_resultado:
                 unsafe_allow_html=True)
 
     if arquivo is not None and analisar:
-        with st.spinner("Chamando a Azure..."):
+        with st.spinner("Chamando o Rekognition..."):
             try:
                 situacao, corpo = enviar_para_deteccao(arquivo, modo, consentimento)
             except requests.RequestException as erro:
@@ -238,8 +238,8 @@ with coluna_resultado:
                     hide_index=True,
                 )
 
-            if corpo.get("caminho_blob"):
-                st.caption(f"Gravado em `{corpo['caminho_blob']}` · "
+            if corpo.get("caminho_armazenamento"):
+                st.caption(f"Gravado em `{corpo['caminho_armazenamento']}` · "
                            f"imagem persistida: **{corpo['imagem_persistida']}**")
 
             st.markdown('<div class="rotulo">Payload JSON</div>', unsafe_allow_html=True)

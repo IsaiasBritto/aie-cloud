@@ -1,6 +1,6 @@
 ---
 name: provisionar-ambiente-da-aula
-description: Provisiona do zero o ambiente do Deva3 na Azure — grupo rg-aula-05, conta de armazenamento com container de blobs, recurso de visão, registro de containers e os dois Container Apps.
+description: Provisiona do zero o ambiente do Deva3 na AWS (Learner Lab) — bucket S3 com retenção LGPD, repositórios ECR, cluster e serviço ECS Fargate — usando os scripts Terraform de infra/.
 ---
 
 # Provisionar o ambiente da aula
@@ -9,62 +9,58 @@ description: Provisiona do zero o ambiente do Deva3 na Azure — grupo rg-aula-0
 
 Antes da aula, ou quando o ambiente foi apagado e precisa voltar.
 
-⚠️ Esta skill **cria recursos que geram custo**. O `AGENTS.md` §6 proíbe executar
-qualquer `az` de criação sem confirmação humana explícita. Peça, espere o "pode ir",
-e só então rode.
+⚠️ Esta skill **cria recursos que geram custo** (a tarefa Fargate cobra enquanto está
+de pé). O `AGENTS.md` §6 proíbe `terraform apply` sem confirmação humana explícita.
+Peça, espere o "pode ir", e só então rode.
 
 ## Pré-requisitos
 
-- `az login` feito, assinatura correta selecionada.
-- Extensão de Container Apps e provedores registrados:
+- Learner Lab ligado (bolinha verde) e CloudShell aberto em `us-east-1`.
+- `aws sts get-caller-identity` responde (a credencial é a da sessão).
+- Terraform no `$HOME`:
   ```bash
-  az extension add --name containerapp --upgrade
-  az provider register -n Microsoft.App --wait
-  az provider register -n Microsoft.OperationalInsights --wait
+  bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh && source ~/.bashrc
   ```
-- Um sufixo único de 4 a 6 caracteres, porque nome de Storage e de ACR é global.
 
 ## Passos
 
-1. **Confirmar com o professor.** Diga o que será criado, em qual região e a estimativa
-   de custo (ACR Basic é o único item com custo fixo relevante).
+1. **Confirmar com o professor.** Diga o que será criado (bucket, 2 ECR, cluster,
+   1 tarefa Fargate 0,5 vCPU / 1 GB) e que a tarefa custa ≈ US$ 0,03/h do crédito.
 
 2. **Rodar os scripts na ordem**, que é a mesma da dependência entre recursos:
    ```bash
-   export SUFIXO=fiap01
-   bash infra/01-criar-recursos.sh     # grupo, storage+container, visão, ACR, ambiente
-   bash infra/02-publicar-imagens.sh   # az acr build das duas imagens
-   bash infra/03-implantar-apps.sh     # os dois Container Apps + variáveis
+   cd ~/aie-cloud/aulas/05-bedrock-agents/Lab
+   export VERSAO=v1
+   bash infra/01-criar-recursos.sh     # terraform: bucket, ECR, cluster, logs, SG
+   bash infra/02-publicar-imagens.sh   # docker build + push das duas imagens
+   bash infra/03-implantar-apps.sh     # serviço ECS + IP público
    ```
 
-3. **Guardar as duas URLs** que o script imprime no final. São elas que vão para o slide.
+3. **Guardar as URLs** que o script imprime no final. O IP muda a cada implantação.
 
 4. **Testar como o aluno vai testar**, de fora:
    ```bash
-   curl -s https://$URL_API/saude | jq
+   curl -s http://$IP:8000/saude | jq
    ```
 
-5. **Anotar em `MEMORY.md`** o sufixo usado, a região e a data — a próxima turma vai
-   perguntar.
+5. **Anotar em `MEMORY.md`** a data e a etiqueta publicada.
 
 ## Verificação antes de dizer que terminou
 
-- [ ] `az resource list -g rg-aula-05 -o table` mostra os cinco recursos esperados
-- [ ] `GET /saude` responde `200` com `modos_disponiveis` contendo `pessoas`
-- [ ] A interface abre em HTTPS e conversa com a API
-- [ ] O container `deteccoes` existe na conta de armazenamento
-- [ ] O orçamento com alerta está criado na assinatura
+- [ ] `terraform -chdir=infra/terraform state list` mostra bucket, 2 ECR, cluster, serviço
+- [ ] `GET /saude` responde `200` com `modos_disponiveis` = `["pessoas", "rostos"]`
+- [ ] A interface abre em `:8501` e conversa com a API
+- [ ] O bucket tem a regra de ciclo de vida `lgpd-retencao`
+- [ ] O Tag Editor acha tudo por `projeto = deva3`
 
 ## Saída
 
-Grupo `rg-aula-05` provisionado e duas URLs públicas.
+Ambiente provisionado e duas URLs públicas (interface e API).
 
 ## Armadilhas
 
-- Nome de Storage e de ACR é **global**: sem sufixo único, o script falha com
-  "already taken".
-- O F0 do Vision é **um por assinatura por região**. Se já existir, o script falha —
-  use S1 ou outra região.
-- Esquecer `az provider register -n Microsoft.App`: a criação do ambiente de Container
-  Apps falha com uma mensagem que não diz isso claramente.
-- Terminar a aula sem rodar `infra/99-remover-tudo.sh`. O ACR continua cobrando.
+- Rodar o `03` antes do `02`: a tarefa cai com `CannotPullContainerError`.
+- `Error: reading IAM Role (LabRole)`: não é Learner Lab. Passe `-var role_name=...`.
+- CloudShell sem espaço no build: `docker system prune -af`.
+- Terminar a aula sem `infra/99-remover-tudo.sh`. A tarefa Fargate continua cobrando
+  quando o Lab religar.

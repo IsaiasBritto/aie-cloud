@@ -1,9 +1,9 @@
-"""Serviço de armazenamento no Azure Blob Storage.
+"""Serviço de armazenamento no Amazon S3.
 
-Grava, para cada análise, dois arquivos no container `deteccoes`:
+Grava, para cada análise, dois objetos no bucket, sob o prefixo `deteccoes/`:
 
-    AAAA/MM/DD/<identificador>/original.<ext>   ← a imagem enviada
-    AAAA/MM/DD/<identificador>/resultado.json   ← o payload devolvido
+    deteccoes/AAAA/MM/DD/<identificador>/original.<ext>   ← a imagem enviada
+    deteccoes/AAAA/MM/DD/<identificador>/resultado.json   ← o payload devolvido
 
 ⚖️ LGPD, para dizer em aula: imagem de rosto é **dado pessoal sensível**
 (dado biométrico, art. 5º, II da LGPD). Guardar exige base legal, consentimento
@@ -11,18 +11,20 @@ informado, prazo de retenção e um jeito de apagar. Por isso:
 
 - a interface pede consentimento explícito antes de enviar;
 - `PERSISTIR_IMAGENS=false` desliga a gravação da imagem sem quebrar nada;
-- o script `99-remover-tudo.sh` apaga o grupo de recursos inteiro no fim da aula.
+- o bucket tem regra de ciclo de vida: tudo em `deteccoes/` expira sozinho
+  (padrão: 7 dias) — retenção escrita em código, não em promessa;
+- o bucket bloqueia acesso público e criptografa em repouso;
+- o `99-remover-tudo.sh` apaga o bucket inteiro no fim da aula.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 
-from azure.core.exceptions import AzureError
-from azure.storage.blob.aio import BlobServiceClient
-
 from api.erros import FalhaDeArmazenamento
+from api.servicos._aws import cliente, traduzir_erro
 
 EXTENSAO_POR_TIPO = {
     "image/jpeg": "jpg",
@@ -33,59 +35,56 @@ EXTENSAO_POR_TIPO = {
 }
 
 
-class ServicoArmazenamentoBlob:
-    """Grava imagem e resultado no Blob Storage."""
+class ServicoArmazenamentoS3:
+    """Grava imagem e resultado no S3."""
 
-    NOME = "Azure Blob Storage"
+    NOME = "Amazon S3"
 
-    def __init__(self, conexao: str, container: str = "deteccoes") -> None:
-        self.conexao = conexao
-        self.container = container
+    def __init__(self, bucket: str, regiao: str, prefixo_raiz: str = "deteccoes") -> None:
+        self.bucket = bucket
+        self.regiao = regiao
+        self.prefixo_raiz = prefixo_raiz.strip("/")
 
     def montar_prefixo(self, identificador: str,
                        momento: datetime | None = None) -> str:
         agora = momento or datetime.now(timezone.utc)
-        return f"{agora:%Y/%m/%d}/{identificador}"
+        return f"{self.prefixo_raiz}/{agora:%Y/%m/%d}/{identificador}"
 
     async def guardar(self, identificador: str, imagem: bytes | None,
                       tipo_conteudo: str, resultado: dict,
                       momento: datetime | None = None) -> str:
-        """Grava os arquivos e devolve o prefixo usado no container."""
+        """Grava os objetos e devolve o prefixo usado no bucket."""
         prefixo = self.montar_prefixo(identificador, momento)
+        s3 = cliente("s3", self.regiao)
         try:
-            async with BlobServiceClient.from_connection_string(self.conexao) as servico:
-                container = servico.get_container_client(self.container)
-
-                if imagem is not None:
-                    extensao = EXTENSAO_POR_TIPO.get(tipo_conteudo, "bin")
-                    await container.upload_blob(
-                        name=f"{prefixo}/original.{extensao}",
-                        data=imagem,
-                        overwrite=True,
-                    )
-
-                await container.upload_blob(
-                    name=f"{prefixo}/resultado.json",
-                    data=json.dumps(resultado, ensure_ascii=False, indent=2,
-                                    default=str).encode("utf-8"),
-                    overwrite=True,
+            if imagem is not None:
+                extensao = EXTENSAO_POR_TIPO.get(tipo_conteudo, "bin")
+                await asyncio.to_thread(
+                    s3.put_object, Bucket=self.bucket, Key=f"{prefixo}/original.{extensao}",
+                    Body=imagem, ContentType=tipo_conteudo,
                 )
-        except AzureError as erro:
+            await asyncio.to_thread(
+                s3.put_object, Bucket=self.bucket, Key=f"{prefixo}/resultado.json",
+                Body=json.dumps(resultado, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                ContentType="application/json",
+            )
+        except Exception as erro:  # noqa: BLE001
+            traduzido = traduzir_erro(self.NOME, erro)
             raise FalhaDeArmazenamento(
-                mensagem="Não foi possível gravar no Blob Storage.",
-                detalhe=str(erro),
-                como_resolver=(
-                    "Confira ARMAZENAMENTO_CONEXAO (string de conexão completa, com "
-                    "AccountKey) e se o container 'deteccoes' existe na conta."
+                mensagem="Não foi possível gravar no S3.",
+                detalhe=traduzido.detalhe,
+                como_resolver=traduzido.como_resolver or (
+                    "Confira ARMAZENAMENTO_BUCKET (output do Terraform) e a permissão "
+                    "s3:PutObject da role."
                 ),
             ) from erro
 
         return prefixo
 
-    async def container_existe(self) -> bool:
+    async def bucket_existe(self) -> bool:
+        s3 = cliente("s3", self.regiao)
         try:
-            async with BlobServiceClient.from_connection_string(self.conexao) as servico:
-                container = servico.get_container_client(self.container)
-                return await container.exists()
-        except AzureError:
+            await asyncio.to_thread(s3.head_bucket, Bucket=self.bucket)
+            return True
+        except Exception:  # noqa: BLE001
             return False

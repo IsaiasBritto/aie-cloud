@@ -1,34 +1,23 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────
-# Deva3 · variáveis compartilhadas por todos os scripts de infraestrutura.
+# Deva3 · variáveis e utilitários compartilhados pelos scripts de infra.
 #
 # Não execute este arquivo sozinho: os outros scripts o carregam com `source`.
 #
-# O único valor que você PRECISA mudar é o SUFIXO — nome de conta de
-# armazenamento e de registro de containers é único no mundo inteiro.
+# Diferente da versão Azure, não há SUFIXO para escolher: o Terraform sorteia
+# um (random_string) e guarda no estado. Nome de bucket é único no mundo, e o
+# sorteio evita a colisão entre colegas da mesma turma.
 # ─────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
-# ── o que você escolhe ───────────────────────────────────────────────────
-export SUFIXO="${SUFIXO:-fiap01}"          # 4 a 6 letras/números, minúsculas
-export REGIAO="${REGIAO:-eastus2}"
-export GRUPO="${GRUPO:-rg-aula-05}"
-export VERSAO="${VERSAO:-v1}"              # etiqueta das imagens. Nunca 'latest'
-
-# ── nomes derivados (não precisa mexer) ──────────────────────────────────
-export CONTA_ARMAZENAMENTO="stdeva3${SUFIXO}"      # sem hífen, minúsculas, até 24
-export CONTAINER_BLOB="deteccoes"
-export RECURSO_VISAO="cv-deva3-${SUFIXO}"
-export ACR="acrdeva3${SUFIXO}"                     # sem hífen, minúsculas
-export AMBIENTE_APPS="cae-aula-05"
-export APP_API="ca-deva3-api"
-export APP_WEB="ca-deva3-web"
-
-# Nível do recurso de visão:
-#   F0 = gratuito, 20 chamadas/minuto, UM por assinatura por região
-#   S1 = pago por chamada (10 chamadas/segundo) — use no dia da aula com turma grande
-export NIVEL_VISAO="${NIVEL_VISAO:-F0}"
+INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export INFRA
+export TF_DIR="$INFRA/terraform"
+export RAIZ="$INFRA/.."                     # contexto do docker build (pasta Lab)
+export AWS_REGION="${AWS_REGION:-us-east-1}"
+export VERSAO="${VERSAO:-v1}"               # etiqueta das imagens. Nunca 'latest'
+export TF_VAR_versao="$VERSAO"
 
 # ── utilitários de saída ─────────────────────────────────────────────────
 azul()    { printf "\033[1;36m%s\033[0m\n" "$*"; }
@@ -36,25 +25,30 @@ verde()   { printf "\033[1;32m%s\033[0m\n" "$*"; }
 amarelo() { printf "\033[1;33m%s\033[0m\n" "$*"; }
 vermelho(){ printf "\033[1;31m%s\033[0m\n" "$*"; }
 
-exigir_az() {
-  command -v az >/dev/null 2>&1 || {
-    vermelho "A CLI do Azure (az) não está instalada."
-    echo "Instale em: https://learn.microsoft.com/cli/azure/install-azure-cli"
+exigir_ferramentas() {
+  command -v aws >/dev/null 2>&1 || { vermelho "AWS CLI não encontrada. Use o CloudShell."; exit 1; }
+  command -v terraform >/dev/null 2>&1 || {
+    vermelho "Terraform não encontrado."
+    echo "Rode: bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh && source ~/.bashrc"
     exit 1
   }
-  az account show >/dev/null 2>&1 || {
-    vermelho "Você não está autenticado. Rode: az login"
+  aws sts get-caller-identity >/dev/null 2>&1 || {
+    vermelho "Sem credencial AWS. O Learner Lab está ligado (bolinha verde)?"
     exit 1
   }
 }
 
 mostrar_alvo() {
-  local assinatura
-  assinatura=$(az account show --query name -o tsv)
+  local conta arn
+  conta=$(aws sts get-caller-identity --query Account --output text)
+  arn=$(aws sts get-caller-identity --query Arn --output text)
   azul "───────────────────────────────────────────────────────────"
-  azul " Assinatura ...... ${assinatura}"
-  azul " Grupo ........... ${GRUPO}"
-  azul " Região .......... ${REGIAO}"
-  azul " Sufixo .......... ${SUFIXO}"
+  azul " Conta ........... ${conta}"
+  azul " Identidade ...... ${arn}"
+  azul " Região .......... ${AWS_REGION}"
+  azul " Versão .......... ${VERSAO}"
   azul "───────────────────────────────────────────────────────────"
 }
+
+tf() { terraform -chdir="$TF_DIR" "$@"; }
+saida() { tf output -raw "$1"; }

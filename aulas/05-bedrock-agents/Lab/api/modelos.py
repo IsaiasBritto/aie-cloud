@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field
 class ModoDeteccao(str, Enum):
     """Qual serviço cognitivo será chamado."""
 
-    PESSOAS = "pessoas"   # Azure AI Vision · Image Analysis 4.0 · feature `people`
-    ROSTOS = "rostos"     # Azure AI Face · /face/v1.2/detect (Acesso Limitado)
+    PESSOAS = "pessoas"   # Amazon Rekognition · DetectLabels filtrado em Person
+    ROSTOS = "rostos"     # Amazon Rekognition · DetectFaces
 
 
 class CaixaDelimitadora(BaseModel):
@@ -43,8 +43,8 @@ class Deteccao(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Pontuação de 0 a 1 devolvida pelo serviço. "
-            "O modo 'rostos' não devolve confiança — nesse caso vem nulo."
+            "Pontuação de 0 a 1 (o Rekognition devolve 0 a 100; a API divide por 100). "
+            "Nulo se o serviço não informar."
         ),
     )
     acima_do_limiar: bool = Field(
@@ -67,7 +67,7 @@ class ResultadoDeteccao(BaseModel):
     identificador: str = Field(..., description="Identificador único desta análise")
     momento: datetime = Field(..., description="Quando a análise foi feita (UTC)")
     modo: ModoDeteccao
-    servico: str = Field(..., description="Nome do serviço da Azure efetivamente chamado")
+    servico: str = Field(..., description="Nome do serviço da AWS efetivamente chamado")
     arquivo: str = Field(..., description="Nome do arquivo enviado")
     tamanho_bytes: int
     dimensoes: DimensoesImagem
@@ -77,10 +77,10 @@ class ResultadoDeteccao(BaseModel):
     deteccoes: list[Deteccao]
     duracao_ms: int = Field(..., description="Tempo total da análise, em milissegundos")
     imagem_persistida: bool = Field(
-        ..., description="Se a imagem foi gravada no Blob Storage"
+        ..., description="Se a imagem foi gravada no S3"
     )
-    caminho_blob: str | None = Field(
-        None, description="Caminho do arquivo no container do Blob Storage"
+    caminho_armazenamento: str | None = Field(
+        None, description="Onde o resultado foi gravado: s3://<bucket>/<prefixo>"
     )
     avisos: list[str] = Field(
         default_factory=list,
