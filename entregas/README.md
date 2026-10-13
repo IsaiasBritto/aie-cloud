@@ -14,7 +14,7 @@ A disciplina é avaliada por **5 entregas intermediárias em grupo** (Aulas 1-5)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  github.com/elthonf/aie-cloud   (PÚBLICO — só leitura)      │
+│  github.com/IsaiasBritto/aie-cloud   (PÚBLICO — só leitura)      │
 │  Material oficial: planos, labs, exercícios                  │
 │  → git clone (não fork)                                      │
 └─────────────────────────────────────────────────────────────┘

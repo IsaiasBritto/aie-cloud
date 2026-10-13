@@ -13,7 +13,7 @@
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
 | 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 respondidos | ✅ Sim | 3 pts (Critério 1) |
 | 🟡 N2 — Exercícios 2.1 (com diagrama), 2.2, 2.3 | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
-| 🔴 N3 — Exercícios 3.1, 3.2, 3.3 (código Terraform/Bicep + README) | 🎁 Bônus | até +2 pts extras |
+| 🔴 N3 — Exercícios 3.1, 3.2, 3.3 (código Terraform/CloudFormation + README) | 🎁 Bônus | até +2 pts extras |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total** | | **10 pts** |
 
@@ -45,7 +45,7 @@ qc-grupo-NN-aula01/
 
 1. Use o **template obrigatório** em [../template-entrega-grupo.md](../template-entrega-grupo.md) para o documento principal.
 2. Trabalhe no **repo privado do grupo** (configuração em [pos-aula-git.md](../../aulas/01-fundamentos-iac/pos-aula-git.md)).
-3. Gere o ZIP no Cloud Shell:
+3. Gere o ZIP no CloudShell:
 
    ```bash
    cd ~/qc-grupo-NN
@@ -66,5 +66,5 @@ Aplica-se a [rubrica única](../rubrica.md) (10 pts: C1 N1 + C2 N2 + C3 qualidad
 
 - **N1:** dominar IaaS/PaaS/SaaS/FaaS, os 6 Rs, cálculo de SLA, RBAC.
 - **N2:** primeiro esboço da arquitetura QC (camadas, provedor, serviços) — base que vai evoluir nas próximas 4 entregas. **Diagrama é parte da entrega.**
-- **N3 (bônus):** estender o lab com Network Security via Terraform, traduzir para Bicep, ou propor multi-cloud.
+- **N3 (bônus):** endurecer o security group via Terraform, traduzir o lab para CloudFormation, ou propor multi-cloud.
 - **Reflexão:** conecte o IaC praticado com a necessidade de **reprodutibilidade de agentes** (provisionamento determinístico, segredos versionados, etc.).

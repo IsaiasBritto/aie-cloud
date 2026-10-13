@@ -32,7 +32,7 @@ O curso da Alura cobre os fundamentos. Esta apostila cobre **o que é específic
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  github.com/elthonf/aie-cloud   (PÚBLICO — só leitura)      │
+│  github.com/IsaiasBritto/aie-cloud   (PÚBLICO — só leitura)      │
 │  Material oficial: planos, labs, exercícios                  │
 │  Você faz "git clone" para baixar o material                 │
 └─────────────────────────────────────────────────────────────┘
@@ -66,7 +66,7 @@ O repositório `aie-cloud` é **público**. Você não precisa fazer fork — s�
 ```bash
 # No CloudShell
 cd ~
-git clone https://github.com/elthonf/aie-cloud.git
+git clone https://github.com/IsaiasBritto/aie-cloud.git
 cd aie-cloud
 ls
 ```
