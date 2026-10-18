@@ -129,7 +129,7 @@ resource "aws_instance" "vm" {
 # ---------------------------------------------------------------------------
 resource "aws_resourcegroups_group" "lab" {
   name        = "rg-iac-aula01"
-  description = "Recursos da Aula 1 provisionados via Terraform (consulta por tag)"
+  description = "Recursos da Aula 1 provisionados via Terraform - consulta por tag" # só letras, números, espaço, _ . -
 
   resource_query {
     query = jsonencode({
