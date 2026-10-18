@@ -54,7 +54,7 @@ data "aws_ami" "ubuntu" {
 
 # Security group com as 3 portas de entrada do lab via console (SSH, HTTP, HTTPS)
 resource "aws_security_group" "web" {
-  name        = "sg-${var.vm_name}"
+  name        = "${var.vm_name}-sg" # a AWS proíbe nome começando com "sg-" (prefixo reservado aos IDs)
   description = "SSH, HTTP e HTTPS para a VM do lab da Aula 1"
   vpc_id      = data.aws_vpc.padrao.id
 
