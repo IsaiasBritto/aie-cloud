@@ -256,9 +256,36 @@ terraform plan
 # Aplica de fato — digite 'yes' (~1-2 min)
 terraform apply
 
-# Conectar na VM usando o output
-terraform output -raw ssh_command   # copie e cole o comando exibido
+# Mostra o comando de SSH montado pelo output (só IMPRIME, não conecta)
+terraform output -raw ssh_command
 ```
+
+Agora **conecte** na VM executando o comando que o output imprime:
+
+```bash
+$(terraform output -raw ssh_command)
+```
+
+Na primeira conexão, responda `yes` em *Are you sure you want to continue connecting?*.
+
+> ⚠️ **Confira o prompt antes de seguir.** `~/aie-cloud/.../terraform $` é o
+> **CloudShell**; `ubuntu@ip-172-31-...:~$` é a **VM**. Um servidor web iniciado no
+> CloudShell não aparece no IP da VM — o navegador responde *connection refused*.
+
+Já **dentro da VM**, publique a mesma página da Atividade 4:
+
+```bash
+echo "<h1>Quantum Commerce · Aula 1 (Terraform)</h1>" > index.html
+sudo python3 -m http.server 80
+```
+
+Abra `http://<public_ip_address>` no navegador (o valor está em
+`terraform output -raw public_ip_address`). O terminal da VM mostra cada acesso:
+`200` na primeira visita, `404` para o `favicon.ico` (normal) e `304` ao recarregar
+(o navegador usou o cache). Mesma página, mesma porta, mesmo resultado da VM do
+console — só que esta nasceu de código.
+
+Para voltar ao CloudShell: **Ctrl+C** (para o servidor) e `exit` (sai da VM).
 
 No console:
 
