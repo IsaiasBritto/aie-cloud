@@ -1,0 +1,29 @@
+# Lab 3 — consultas do CloudWatch Logs Insights sobre /eva/turnos
+# Cole uma de cada vez em: CloudWatch → Logs → Logs Insights → log group /eva/turnos
+# (janela de tempo: últimas 48 h). Este arquivo é o modelo do entregável
+# finops-eva/consultas-logs-insights.txt: deixe só as que você usou, com o resultado.
+
+# ── 1. Custo por turno: média e p95 (Passo 3) ─────────────────────────────
+filter evento = "eva.chamada_modelo"
+| stats sum(custo_estimado_usd) as custo_turno, count(*) as iteracoes by turno_id
+| stats count(*) as turnos, avg(custo_turno) as custo_medio,
+        pct(custo_turno, 95) as custo_p95, avg(iteracoes) as iteracoes_medias
+
+# ── 2. Quanto custa dar uma ferramenta ao agente ──────────────────────────
+filter evento = "eva.chamada_modelo"
+| stats sum(custo_estimado_usd) as custo_turno, count(*) as iteracoes by turno_id
+| stats count(*) as turnos, avg(custo_turno) as custo_medio by iteracoes
+| sort iteracoes asc
+
+# ── 3. Entrada × saída: onde otimizar ─────────────────────────────────────
+filter evento = "eva.chamada_modelo"
+| stats sum(tokens_entrada) as entrada, sum(tokens_saida) as saida
+
+# ── 4. Dimensionar EVA_MAX_ITERACOES com dado ─────────────────────────────
+filter evento = "eva.chamada_modelo"
+| stats count(*) as iteracoes by turno_id
+| stats pct(iteracoes, 50) as p50, pct(iteracoes, 95) as p95, max(iteracoes) as maximo
+
+# ── 5. Falhas ──────────────────────────────────────────────────────────────
+filter evento = "eva.chamada_modelo" and falhou = 1
+| stats count(*) as falhas by erro

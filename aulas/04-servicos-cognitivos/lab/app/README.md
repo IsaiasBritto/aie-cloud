@@ -1,25 +1,22 @@
 # QC Cognitive Studio — front-end da Aula 4
 
-Aplicação Streamlit que consome os serviços cognitivos provisionados no lab e
-explora TTS, STT, análise de imagem e localização espacial.
+Aplicação Streamlit que consome os serviços de IA do lab (Polly, Transcribe e Rekognition) e explora texto → fala, fala → texto, análise de imagem e localização espacial.
 
-O ponto da atividade não é a interface. É a comparação: **cada operação pode ser
-executada por dois caminhos**, e o app mostra os dois lado a lado.
+O ponto da atividade não é a interface. É a comparação: **cada operação pode ser executada por dois caminhos**, e o app mostra os dois lado a lado.
 
-| | Via Function App | Direto no AI Services |
+| | Via Lambda | Direto na AWS |
 |---|---|---|
-| Chave no cliente | não existe | `AI_KEY` na barra lateral |
-| Quem se autentica | Managed Identity da Function | você, com a chave |
-| Se o código vazar | só a URL da Function | a chave vai junto |
+| Credencial no cliente | não existe | access key na barra lateral |
+| Quem se autentica | a função, com a LabRole | você, com a access key |
+| Se o código vazar | só a URL da função | a credencial vai junto |
 | Latência | um salto a mais | um salto a menos |
 
 ## Rodar
 
-Na **sua máquina** — não no Cloud Shell. O navegador só libera o microfone em
-`localhost` ou HTTPS, e o Cloud Shell não oferece nenhum dos dois.
+Na **sua máquina** — não no CloudShell. O navegador só libera o microfone em `localhost` ou HTTPS.
 
 ```bash
-cd app
+cd aulas/04-servicos-cognitivos/lab/app
 pip install -r requirements.txt
 streamlit run app.py
 ```
@@ -28,63 +25,35 @@ Abre em `http://localhost:8501`.
 
 ## Preencher a barra lateral
 
-No Cloud Shell, com o lab provisionado:
+No CloudShell, com o lab provisionado:
 
 ```bash
-cd ~/qc-grupo-NN/aula04
+cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab
 source exportar-outputs.sh
-
-echo "FUNC_HOSTNAME : $FUNC_HOSTNAME"
-echo "AI_ENDPOINT   : $AI_ENDPOINT"
-echo "AI_REGION     : $AI_REGION"
-echo "AI_KEY        : $(az keyvault secret show --vault-name "$KEY_VAULT_NAME" \
-                          --name ai-services-key --query value -o tsv)"
+echo "FUNC_URL    : $FUNC_URL"
+echo "DATA_BUCKET : $DATA_BUCKET"
 ```
 
-Só o **Function App** é obrigatório. `AI_ENDPOINT`, `AI_REGION` e `AI_KEY`
-servem exclusivamente ao caminho direto — se você usar só o caminho via
-Function, pode deixá-los em branco, e essa é justamente a demonstração.
+Só a **Function URL** é obrigatória. As credenciais (Learner Lab → **AWS Details** → **AWS CLI: Show**) e o `DATA_BUCKET` servem apenas ao caminho direto — deixá-los em branco é justamente a demonstração.
 
 ## As quatro abas
 
-**🔊 Texto → Fala.** Sintetiza com três vozes brasileiras. O áudio toca no
-navegador e pode ser baixado — use o WAV gerado aqui para testar o STT, já que
-ele sai no formato que o Speech espera.
+**🔊 Texto → Fala.** Sintetiza com vozes neurais do Polly (Camila, Vitória, Thiago...). O WAV pode ser baixado e serve de entrada para a próxima aba.
 
-**🎤 Fala → Texto.** Grava do microfone ou aceita upload.
+**🎤 Fala → Texto.** Grava do microfone ou aceita upload. O app converte para WAV 16 kHz mono antes de enviar. O Transcribe processa em **lote** (o áudio passa pelo S3): espere alguns segundos.
 
-> O Speech REST aceita **WAV PCM 16 kHz mono**. A gravação do navegador costuma
-> sair em WebM/Opus, e o resultado é transcrição vazia com `200 OK` — falha
-> silenciosa, não erro. Se acontecer, teste com o WAV da aba anterior para
-> separar "meu áudio está no formato errado" de "o serviço não funciona".
-
-**🖼️ Visão + Espacial.** Envia uma imagem e devolve tags, texto por OCR e os
-objetos localizados. As bounding boxes são desenhadas sobre a imagem original com
-Pillow, e a tabela ao lado mostra as coordenadas em pixels.
-
-> As coordenadas vêm em pixels da imagem **original**. Redimensionar antes de
-> desenhar desloca todas as caixas — por isso o desenho acontece no tamanho
-> original e o Streamlit escala depois.
+**🖼️ Visão + Espacial.** Rótulos, texto (OCR) e objetos com caixa, desenhados sobre a imagem original com Pillow. O Rekognition devolve as caixas em **proporção** (0–1); a Lambda e o app convertem para pixels.
 
 **🏛️ Arquitetura.** A tabela comparativa e as perguntas de discussão.
 
 ## O que este app deliberadamente não faz
 
-Não guarda a chave em disco, não usa `.env` e não tem "lembrar credenciais".
-Tudo vive na sessão do navegador e some quando a aba fecha. Num app de verdade
-isso seria inconveniente; aqui é o conteúdo da aula.
+Não guarda credencial em disco, não usa `.env` e não tem "lembrar credenciais". Tudo vive na sessão do navegador e some quando a aba fecha.
 
 ## Rotas que ele consome
 
-Adicionadas ao `function/function_app.py` para este app. Recebem o arquivo **no
-corpo** da requisição, em vez de um nome de blob — assim o front-end não precisa
-de credencial de Storage nenhuma.
-
 | Rota | Corpo | Devolve |
 |---|---|---|
-| `POST /api/tts` | `{"texto","voz","idioma"}` | `audio/wav` |
-| `POST /api/stt?idioma=pt-BR` | bytes do WAV | `{"transcricao"}` |
-| `POST /api/visao` | bytes da imagem | `{"tags","texto","objetos","largura","altura"}` |
-
-As rotas antigas (`/api/transcrever?blob=`, `/api/analisar-imagem?blob=`)
-continuam existindo e são as usadas nas Atividades 2 e 4.
+| `POST /tts` | `{"texto","voz"}` | `audio/wav` |
+| `POST /stt?idioma=pt-BR&formato=wav` | bytes do áudio | `{"transcricao"}` |
+| `POST /visao` | bytes da imagem | `{"tags","texto","objetos","largura","altura"}` |

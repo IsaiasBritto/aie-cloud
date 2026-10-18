@@ -1,7 +1,1 @@
-{
-  "input_data": {
-    "columns": ["produto_id", "n_recomendacoes"],
-    "index": [0],
-    "data": [[5, 5]]
-  }
-}
+{"produto_id": 5, "n_recomendacoes": 5}

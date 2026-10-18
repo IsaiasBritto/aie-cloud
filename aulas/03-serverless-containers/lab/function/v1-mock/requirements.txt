@@ -1,1 +1,1 @@
-azure-functions
+# Sem dependências: usa só a biblioteca padrão do Python

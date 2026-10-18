@@ -1,43 +1,22 @@
-# Storage Account obrigatório para a Function (estado interno + pacote de deploy)
-resource "azurerm_storage_account" "func_sa" {
-  name                     = "stfunc${random_string.sufixo.result}"
-  resource_group_name      = azurerm_resource_group.rg.name
-  location                 = azurerm_resource_group.rg.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  min_tls_version          = "TLS1_2"
-  tags                     = local.tags
+# Bucket do CATÁLOGO da QC — criado NESTA aula (a Aula 3 não depende da Aula 2)
+resource "aws_s3_bucket" "catalogo" {
+  bucket        = "${local.nome}-catalogo"
+  force_destroy = true
 }
 
-# Container onde o Flex Consumption guarda o pacote de deploy da Function
-resource "azurerm_storage_container" "deployments" {
-  name               = "deployments"
-  storage_account_id = azurerm_storage_account.func_sa.id
+resource "aws_s3_bucket_public_access_block" "catalogo" {
+  bucket                  = aws_s3_bucket.catalogo.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-# Storage do CATÁLOGO da QC — criado NESTA aula (Aula 3 é independente da Aula 2).
-# A Function e o ACI leem o produtos.csv daqui via Managed Identity.
-resource "azurerm_storage_account" "catalogo" {
-  name                     = "stcatqc${random_string.sufixo.result}"
-  resource_group_name      = azurerm_resource_group.rg.name
-  location                 = azurerm_resource_group.rg.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  min_tls_version          = "TLS1_2"
-  tags                     = local.tags
-}
-
-resource "azurerm_storage_container" "catalogo" {
-  name                  = "catalogo"
-  storage_account_id    = azurerm_storage_account.catalogo.id
-  container_access_type = "private"
-}
-
-# Sobe o produtos.csv automaticamente no apply — sem passo de upload manual.
-# A Aula 3 fica autossuficiente (não precisa do storage nem do CSV da Aula 2).
-resource "azurerm_storage_blob" "produtos" {
-  name                 = "produtos.csv"
-  storage_container_id = azurerm_storage_container.catalogo.id
-  type                 = "Block"
-  source               = "${path.module}/../data/produtos.csv"
+# Sobe o produtos.csv no apply — sem passo de upload manual
+resource "aws_s3_object" "produtos" {
+  bucket       = aws_s3_bucket.catalogo.id
+  key          = "catalogo/produtos.csv"
+  source       = "${path.module}/../data/produtos.csv"
+  etag         = filemd5("${path.module}/../data/produtos.csv")
+  content_type = "text/csv"
 }

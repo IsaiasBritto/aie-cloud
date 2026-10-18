@@ -1,46 +1,38 @@
 # Scripts Python — Aula 2
 
-Scripts que populam e exploram as bases provisionadas pelo Terraform da Aula 2.
+Scripts que populam e exploram as bases provisionadas pelo Terraform da Aula 2. Todos usam o **boto3**, que no CloudShell autentica sozinho com a credencial da sessão do Learner Lab (LabRole) — nenhuma chave no código.
 
 | Script | Atividade | O que faz |
 |--------|-----------|-----------|
-| [popular_produtos.py](popular_produtos.py) | L₂ | Lê CSV do Blob, lê connection string do Key Vault, cria e popula `T_PRODUTOS` no Azure SQL |
-| [popular_reviews.py](popular_reviews.py) | L₃-A | Insere 30 reviews fictícias no Cosmos DB (particionado por `produto_id`) |
-| [indexar_produtos.py](indexar_produtos.py) | L₃-B | Cria índice no Azure AI Search com semantic ranking e indexa os produtos |
+| [popular_produtos.py](popular_produtos.py) | L₂ | Lê a connection string do Secrets Manager e o CSV do S3; cria e popula `t_produtos` no RDS PostgreSQL |
+| [popular_reviews.py](popular_reviews.py) | L₃-A | Insere 30 reviews fictícias no DynamoDB e faz Query na partição `produto_id = 5` |
+| [indexar_produtos.py](indexar_produtos.py) | L₃-B | Gera embeddings (MiniLM, 384 dims) e cria a busca vetorial com pgvector no RDS |
+| [popular_reviews_mongo.py](popular_reviews_mongo.py) | L₃-C | Mesmas 30 reviews no MongoDB da EC2, com a senha lida do Secrets Manager |
 
-## Pré-requisitos
-
-- Terraform da Aula 2 já aplicado (`cd ../terraform && terraform apply ...`)
-- CSV de produtos enviado ao Blob (ver Atividade 1 do [guia-lab.md](../guia-lab.md))
-- Permissões data plane no Cosmos (concedidas via `az cosmosdb sql role assignment` — ver guia)
-
-## Instalação das dependências
-
-No Cloud Shell (instala em `~/.local`, sem mexer na máquina do aluno):
+## Dependências
 
 ```bash
-pip install --user pyodbc azure-identity azure-keyvault-secrets \
-                    azure-storage-blob azure-cosmos azure-search-documents
+pip install --user -r requirements.txt
+# ou só o que cada atividade pede (ver guia)
 ```
 
-## Variáveis de ambiente esperadas
+## Variáveis de ambiente
 
-Cada script lê o que precisa do ambiente. O guia-lab mostra como exportá-las a partir dos outputs do Terraform.
-
-| Script | Variáveis necessárias |
-|--------|------------------------|
-| `popular_produtos.py` | `KEY_VAULT_NAME`, `STORAGE_ACCOUNT_NAME` |
-| `popular_reviews.py` | `COSMOS_ENDPOINT`, `KEY_VAULT_NAME` |
-| `indexar_produtos.py` | `SEARCH_ENDPOINT`, `STORAGE_ACCOUNT_NAME` |
-
-Atalho para exportar todas:
+| Script | Variáveis |
+|--------|-----------|
+| `popular_produtos.py` | `SECRET_ID`, `BUCKET_NAME` |
+| `popular_reviews.py` | `DYNAMO_TABLE` |
+| `indexar_produtos.py` | `SECRET_ID` (ou `DB_HOST` + `DB_PASSWORD`), `BUCKET_NAME` |
+| `popular_reviews_mongo.py` | `MONGO_IP`, `MONGO_SECRET_ID` (ou `SECRET_ID`) |
 
 ```bash
 cd ~/aie-cloud/aulas/02-storage-bancos/lab/terraform
-export KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
-export STORAGE_ACCOUNT_NAME=$(terraform output -raw storage_account_name)
-export COSMOS_ENDPOINT=$(terraform output -raw cosmos_endpoint)
-export SEARCH_ENDPOINT=$(terraform output -raw search_endpoint)
+export BUCKET_NAME=$(terraform output -raw bucket_name)
+export SECRET_ID=$(terraform output -raw secret_id)
+export MONGO_SECRET_ID=$(terraform output -raw mongo_secret_id)
+export DYNAMO_TABLE=$(terraform output -raw dynamodb_table)
+export DB_HOST=$(terraform output -raw db_endpoint)
+export MONGO_IP=$(terraform output -raw mongodb_public_ip)
 ```
 
 ## Como executar
@@ -50,12 +42,7 @@ cd ~/aie-cloud/aulas/02-storage-bancos/lab/scripts
 python3 popular_produtos.py
 python3 popular_reviews.py
 python3 indexar_produtos.py
+python3 popular_reviews_mongo.py
 ```
 
-## Autenticação
-
-Os scripts usam **`DefaultAzureCredential`** da `azure-identity` para Key Vault, Blob e AI Search — sem chaves hardcoded; a identidade do Cloud Shell é detectada automaticamente.
-
-**Exceção — Cosmos DB:** o Cloud Shell **não** consegue emitir token AAD para a audience de data-plane do Cosmos (`AudienceNotSupported`). Por isso o `popular_reviews.py` autentica no Cosmos com a **key**, lida do **Key Vault** (mesmo padrão de "segredo no Vault" do SQL). Continua sem hardcode.
-
-> **Lição:** em produção, uma **Function/Container com Managed Identity** consegue token AAD para o Cosmos e usaria `DefaultAzureCredential` direto (graças à role data-plane do Terraform). A limitação é só do Cloud Shell.
+> **Lição de segurança:** a credencial nunca aparece no código. No CloudShell ela vem da sessão; numa Lambda ou tarefa ECS, da execution/task role; no seu notebook, do `aws configure` ou de SSO. O código é o mesmo nos três lugares.

@@ -1,35 +1,35 @@
-variable "location" {
-  description = "Região do Azure onde os recursos serão provisionados (igual ao template: eastus2)"
+variable "region" {
+  description = "Região da AWS (o Learner Lab libera us-east-1 e us-west-2)"
   type        = string
-  default     = "eastus2"
+  default     = "us-east-1"
 }
 
-variable "resource_group_name" {
-  description = "Resource Group da versão IaC da VM (separado do rg-lab-aula01 criado no portal)"
+variable "stack_name" {
+  description = "Valor da tag 'stack', usada pelo Resource Group para achar os recursos"
   type        = string
-  default     = "rg-iac-aula01"
+  default     = "iac-aula01"
 }
 
-variable "vm_size" {
-  description = "Tamanho da VM (igual ao template exportado do portal — Standard_D2ps_v6, série Arm Cobalt)"
+variable "vm_name" {
+  description = "Nome da instância EC2 (tag Name)"
   type        = string
-  default     = "Standard_D2ps_v6"
+  default     = "vm-lab-aula01"
 }
 
-variable "zone" {
-  description = "Availability Zone da VM (igual ao template: zona 1)"
+variable "instance_type" {
+  description = "Tipo da instância (o Learner Lab aceita de nano a large)"
   type        = string
-  default     = "1"
+  default     = "t3.micro"
 }
 
-variable "admin_username" {
-  description = "Usuário administrador da VM"
+variable "ssh_cidr" {
+  description = "Origem liberada para SSH. 0.0.0.0/0 é didático — o exercício 3.1 restringe ao seu IP"
   type        = string
-  default     = "azureuser"
+  default     = "0.0.0.0/0"
 }
 
 variable "ssh_public_key_path" {
-  description = "Caminho da chave pública SSH usada para acessar a VM (no Cloud Shell: ~/.ssh/id_rsa.pub)"
+  description = "Chave pública SSH usada no key pair (no CloudShell: ~/.ssh/id_rsa.pub)"
   type        = string
   default     = "~/.ssh/id_rsa.pub"
 }

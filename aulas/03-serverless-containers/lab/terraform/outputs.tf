@@ -1,37 +1,29 @@
-output "resource_group_name" {
-  description = "Nome do Resource Group da Aula 3"
-  value       = azurerm_resource_group.rg.name
+output "bucket_name" {
+  description = "Bucket do catálogo (já com catalogo/produtos.csv)"
+  value       = aws_s3_bucket.catalogo.bucket
 }
 
-output "catalogo_storage_account_name" {
-  description = "Storage Account do catálogo (criado nesta aula, já com produtos.csv)"
-  value       = azurerm_storage_account.catalogo.name
+output "lambda_name" {
+  description = "Nome da função Lambda (usar no aws lambda update-function-code)"
+  value       = aws_lambda_function.catalogo.function_name
 }
 
-# Function
-output "function_app_name" {
-  description = "Nome da Function App (usar no 'func azure functionapp publish')"
-  value       = azurerm_function_app_flex_consumption.fn.name
+output "function_url" {
+  description = "URL HTTPS da função (termina com /)"
+  value       = aws_lambda_function_url.catalogo.function_url
 }
 
-output "function_app_default_hostname" {
-  description = "URL HTTPS da Function App"
-  value       = "https://${azurerm_function_app_flex_consumption.fn.default_hostname}"
+output "ecr_repository_url" {
+  description = "Repositório ECR (destino do docker push)"
+  value       = aws_ecr_repository.produtos_api.repository_url
 }
 
-# Container Registry
-output "acr_login_server" {
-  description = "Endereço do ACR (destino do 'az acr import' da imagem do GHCR)"
-  value       = azurerm_container_registry.acr.login_server
+output "ecs_cluster_name" {
+  description = "Cluster ECS"
+  value       = aws_ecs_cluster.qc.name
 }
 
-output "acr_name" {
-  description = "Nome curto do ACR (usar com 'az acr ...')"
-  value       = azurerm_container_registry.acr.name
-}
-
-# ACI (condicional)
-output "aci_fqdn" {
-  description = "FQDN do ACI quando habilitado; do contrário, mensagem"
-  value       = var.aci_enabled ? azurerm_container_group.aci[0].fqdn : "ACI ainda não habilitado — após pushar imagem, rode 'terraform apply' com -var aci_enabled=true"
+output "ecs_service_name" {
+  description = "Serviço ECS quando habilitado"
+  value       = var.ecs_enabled ? aws_ecs_service.produtos_api[0].name : "ECS desabilitado — depois do docker push, rode: terraform apply -var=\"ecs_enabled=true\""
 }

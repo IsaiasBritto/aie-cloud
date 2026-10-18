@@ -1,121 +1,98 @@
 # Pré-Aula 1 — Checklist Antes do Início
 
-**Tempo estimado:** 15-30 min (depende de quão familiar você está com Azure)
-**Quando fazer:** Pelo menos 1 dia antes da Aula 1
+**Tempo estimado:** 15-30 min
+**Quando fazer:** pelo menos 1 dia antes da Aula 1
 
 ---
 
 ## Por que esta pré-aula existe
 
-A Aula 1 tem 4 horas para cobrir teoria + 5 laboratórios. Se cada aluno gastar 20 min ativando o Azure ao vivo, perdemos várias horas de tempo coletivo.
+A Aula 1 tem 4 horas para teoria + 6 laboratórios. Se cada aluno gastar 20 min ativando a conta ao vivo, perdemos horas de tempo coletivo. Você chega na Aula 1 com:
 
-**Esta pré-aula resolve isso.** Você chega na Aula 1 com:
+- Convite do AWS Academy aceito
+- Learner Lab iniciando sem erro
+- CloudShell aberto e funcionando
 
-- Azure for Students ativado
-- Cloud Shell aberto e funcionando
-- Crédito de $100 visível
+Quem não fizer a pré-aula consegue acompanhar — a Atividade 1 cobre o acesso como fallback —, mas vai ficar corrido.
 
-Quem não fizer a pré-aula vai conseguir acompanhar — a Atividade 1 da aula cobre a ativação como fallback. Mas vai ficar mais corrido. **Por favor faça a pré-aula.**
-
-> **Política "no install":** Tudo aqui é via web — não precisa instalar nada no seu computador.
+> **Política "no install":** tudo é via web — não precisa instalar nada no seu computador.
 
 ---
 
 ## Checklist
 
-### ☐ 1. Ativar Azure for Students (10-15 min)
+### ☐ 1. Aceitar o convite do AWS Academy (5-10 min)
 
-1. Abra seu navegador em **modo anônimo/privado** (Ctrl+Shift+N no Chrome/Edge, Ctrl+Shift+P no Firefox)
-2. Acesse: **https://azure.microsoft.com/free/students**
-3. Clique em **"Comece gratuitamente"**
-4. Faça login com seu **e-mail FIAP** (`seu.nome@fiap.com.br`) e senha do portal FIAP
-5. Complete o MFA (autenticação multifator) se solicitado
-6. Confirme o perfil acadêmico — país: **Brasil**
-7. Aceite os termos
-8. Clique em **"Verificar status acadêmico"** e aguarde 1-2 minutos
-9. Você será redirecionado para `portal.azure.com`
-10. No canto superior direito, confirme que aparece **$100,00 USD** de crédito
+1. Procure no e-mail FIAP a mensagem **"Course Invitation"** do AWS Academy
+2. Clique em **Get Started** e crie a sua senha do AWS Academy (Canvas)
+3. Entre em **https://awsacademy.instructure.com** e confirme que o curso **AWS Academy Learner Lab** aparece em **Courses**
 
 **Se falhar:**
 
-- "Esta conta já está associada..." → acesse `account.microsoft.com`, desconecte a conta existente e tente de novo
-- "Não foi possível verificar status acadêmico" → confirme que está usando o e-mail `@fiap.com.br` (não outro)
-- Outros erros → traga print da tela para a aula; resolveremos no início
+- Não recebeu o convite → confira o spam e avise o professor com o seu e-mail FIAP
+- Convite expirado → peça um novo ao professor
 
-### ☐ 2. Abrir o Azure Cloud Shell (5 min)
+### ☐ 2. Iniciar o Learner Lab (5 min)
 
-O Cloud Shell é o ambiente que usaremos em **TODOS os labs da disciplina**. Vamos abrir agora para confirmar que funciona.
+1. No curso: **Modules → Launch AWS Academy Learner Lab**
+2. Aceite os termos na primeira vez
+3. Clique em **Start Lab** e aguarde a bolinha ao lado de **AWS** ficar **verde**
+4. Clique em **AWS**: o console abre numa nova aba
+5. Confira a região no canto superior direito: **N. Virginia (us-east-1)**
 
-1. No portal Azure, clique no ícone **`>_`** no topo (ou acesse https://shell.azure.com)
-2. Na primeira vez, ele pergunta o tipo de shell — escolha **Bash**
-3. Ele pede para criar um Storage Account para persistência — **aceite** (custo é zero/negligenciável)
-4. Aguarde abrir o prompt: `usuario@Azure:~$`
+> O Learner Lab tem um crédito fixo para o semestre e sessões de ~4 h. O consumo aparece no topo da página do lab. **Recurso esquecido ligado consome crédito de todo mundo do seu grupo de estudo** — por isso o hábito de destruir tudo no fim de cada aula.
 
-**Teste rápido — execute estes comandos:**
+### ☐ 3. Abrir o AWS CloudShell (5 min)
+
+O CloudShell é o ambiente de **TODOS os labs da disciplina**.
+
+1. No console, clique no ícone **`>_`** na barra superior
+2. Aguarde o prompt `[cloudshell-user@ip-... ~]$`
+
+**Teste rápido:**
 
 ```bash
-# Confirmar autenticação
-az account show --query "{nome:name, id:id}" -o table
+# Confirmar autenticação (deve mostrar a LabRole / voclabs)
+aws sts get-caller-identity --output table
 
-# Confirmar ferramentas que usaremos
-terraform -version
-bicep --version
+# Confirmar ferramentas
+aws --version
 python3 --version
 git --version
 ```
 
-Se todos os comandos respondem com versões, **você está pronto para a Aula 1**.
+Se todos respondem, **você está pronto para a Aula 1**.
 
-### ☐ 3. (Opcional) Vídeo introdutório — 10 min
+### ☐ 4. (Opcional) Vídeo introdutório — 10 min
 
-Se você não tem nenhum contato prévio com cloud, assista:
+- [AWS Cloud Practitioner Essentials](https://explore.skillbuilder.aws/learn/course/external/view/elearning/134/aws-cloud-practitioner-essentials) (AWS Skill Builder, gratuito)
 
-- [Azure Fundamentals — What is Cloud Computing?](https://learn.microsoft.com/training/modules/describe-cloud-compute/) (módulo gratuito Microsoft Learn — ~15 min)
+### ☐ 5. (Opcional) Trilha Cloud Practitioner — para quem quer ir além
 
-Quem já tem familiaridade com cloud, pode pular.
-
-### ☐ 4. (Opcional) Trilha AZ-900 — para quem quer ir além
-
-Microsoft Learn tem trilha gratuita de Azure Fundamentals que prepara para a certificação AZ-900:
-
-- https://learn.microsoft.com/training/paths/azure-fundamentals/
-
-Não é obrigatório, mas se você está começando do zero, vale a pena fazer ao longo da disciplina.
+A trilha gratuita do AWS Skill Builder prepara para a certificação **AWS Certified Cloud Practitioner (CLF-C02)**. Não é obrigatória, mas vale a pena ao longo da disciplina.
 
 ---
 
 ## O que NÃO fazer antes da aula
 
-- Não tente instalar Terraform, Azure CLI, Python ou Visual Studio Code no seu computador
-- Não crie Resource Groups, VMs ou outros recursos antes da aula (vai bagunçar os exemplos)
-- Não compartilhe sua senha FIAP com colegas (mesmo para "ajudar")
+- Não instale Terraform, AWS CLI, Python ou VS Code no seu computador
+- Não crie instâncias, buckets ou bancos antes da aula (vai bagunçar os exemplos e consumir crédito)
+- Não compartilhe sua senha do AWS Academy com colegas
 
 ---
 
 ## Se a pré-aula travou em algum ponto
 
-**Não bloqueie o seu progresso!** Vá em frente até onde conseguir e:
-
 1. Tire um print da tela onde travou
-2. Mande no chat da disciplina (Teams / WhatsApp / canal da turma) com:
-   - Em qual passo travou
-   - Mensagem de erro (se houver)
-   - Print da tela
-3. O professor ou um colega responderá antes da aula
+2. Mande no canal da turma com: o passo, a mensagem de erro e o print
+3. O professor ou um colega responde antes da aula
 
 ---
 
 ## Confirmação
 
-Ao final, você deve ter:
+- ✅ Convite do AWS Academy aceito
+- ✅ Learner Lab iniciado (bolinha verde)
+- ✅ CloudShell aberto, com `aws`, `python3` e `git` respondendo
 
-- ✅ Conta Azure ativada com $100 de crédito
-- ✅ Cloud Shell aberto e funcional
-- ✅ `terraform`, `bicep`, `az`, `python3`, `git` respondendo no Cloud Shell
-
-**Nos vemos na Aula 1!** Tenha em mãos:
-
-- Navegador moderno
-- Conexão estável
-- E-mail FIAP logado
-- Uma boa xícara de café
+**Nos vemos na Aula 1!**

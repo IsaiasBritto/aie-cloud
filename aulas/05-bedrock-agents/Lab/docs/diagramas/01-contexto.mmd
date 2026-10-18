@@ -1,0 +1,33 @@
+---
+title: Deva3 — Diagrama de contexto (C4 nível 1)
+---
+flowchart TB
+
+    aluno["<b>Aluno</b><br/><span style='font-size:13px'>Envia a própria foto<br/>e lê o resultado</span>"]
+    professor["<b>Professor</b><br/><span style='font-size:13px'>Provisiona, publica<br/>e conduz a aula</span>"]
+
+    subgraph limite["LIMITE DO SISTEMA · Deva3"]
+        direction TB
+        deva3["<b>Deva3</b><br/>API de Validação Biométrica Básica<br/><span style='font-size:13px'>Recebe uma imagem, pergunta ao serviço<br/>cognitivo e devolve as coordenadas<br/>com a pontuação de confiança</span>"]
+    end
+
+    pessoas["<b>Amazon Rekognition</b><br/>DetectLabels · rótulo Person<br/><span style='font-size:13px'>Sistema externo · sem aprovação</span>"]
+    rostos["<b>Amazon Rekognition</b><br/>DetectFaces<br/><span style='font-size:13px'>Sistema externo · sem aprovação<br/>detecta, não identifica</span>"]
+    s3["<b>Amazon S3</b><br/>bucket privado · prefixo deteccoes/<br/><span style='font-size:13px'>Sistema externo · expira em 7 dias</span>"]
+
+    aluno -->|"envia a foto e lê o JSON<br/>HTTP"| deva3
+    professor -->|"configura o limiar,<br/>publica e apaga o ambiente"| deva3
+
+    deva3 -->|"bytes da imagem<br/>devolve BoundingBox 0–1 + Confidence 0–100"| pessoas
+    deva3 -->|"bytes da imagem<br/>devolve FaceDetails + Confidence"| rostos
+    deva3 -->|"grava original e resultado.json<br/>imagem SOMENTE com consentimento"| s3
+
+    classDef pessoa fill:#22161B,stroke:#EB0B4F,stroke-width:2px,color:#F4F3EF
+    classDef sistema fill:#12222A,stroke:#03E3FD,stroke-width:2.5px,color:#F4F3EF
+    classDef externo fill:#1C1C22,stroke:#7A7872,stroke-width:1.5px,color:#C3C1BA
+
+    class aluno,professor pessoa
+    class deva3 sistema
+    class pessoas,rostos,s3 externo
+
+    style limite fill:#191920,stroke:#3A3A46,stroke-width:1px,color:#7A7872

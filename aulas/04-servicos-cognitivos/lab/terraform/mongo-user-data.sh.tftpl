@@ -1,0 +1,24 @@
+#!/bin/bash
+# Executado UMA vez no primeiro boot da EC2 (cloud-init). Log: /var/log/cloud-init-output.log
+set -euxo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+docker network create qc || true
+
+docker run -d --name mongodb --network qc --restart unless-stopped \
+  -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=admin \
+  -e MONGO_INITDB_ROOT_PASSWORD='${mongo_password}' \
+  -e MONGO_INITDB_DATABASE=qc-db \
+  public.ecr.aws/docker/library/mongo:7.0
+
+docker run -d --name mongo-express --network qc --restart unless-stopped \
+  -p 8081:8081 \
+  -e ME_CONFIG_MONGODB_URL='mongodb://admin:${mongo_password}@mongodb:27017/?authSource=admin' \
+  -e ME_CONFIG_BASICAUTH=true \
+  -e ME_CONFIG_BASICAUTH_USERNAME=qcadmin \
+  -e ME_CONFIG_BASICAUTH_PASSWORD='${mongo_ui_password}' \
+  -e ME_CONFIG_MONGODB_ENABLE_ADMIN=true \
+  public.ecr.aws/docker/library/mongo-express:1.0.2

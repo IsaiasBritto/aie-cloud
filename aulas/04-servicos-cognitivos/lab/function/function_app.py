@@ -1,436 +1,314 @@
 """
-Function App — Aula 4 Quantum Commerce
-Rotas cognitivas via Managed Identity (Language, Vision) e Key Vault (Speech):
-  GET  /api/health
-  GET  /api/transcrever?blob=<nome>&container=audios&idioma=pt-BR
-  POST /api/analisar-reviews?limit=10
-  GET  /api/analisar-imagem?blob=<nome>&container=imagens
+Lambda — Aula 4 Quantum Commerce: serviços de IA da AWS por trás de uma Function URL.
 
-Rotas que recebem o arquivo NO CORPO da requisicao (usadas pelo app Streamlit):
-  POST /api/tts     JSON {texto, voz, idioma}  -> audio/wav
-  POST /api/stt     corpo = bytes do WAV       -> JSON {transcricao}
-  POST /api/visao   corpo = bytes da imagem    -> JSON {tags, texto, objetos}
+Sem chave em lugar nenhum: Transcribe, Polly, Comprehend e Rekognition são APIs
+da conta, autorizadas pela execution role da função (no Learner Lab, a LabRole).
+A senha do MongoDB vem do Secrets Manager, lida em runtime.
 
-As rotas com "blob=" leem do Storage por Managed Identity e servem as atividades
-do lab. As rotas acima recebem os bytes direto, para que um front-end nao precise
-de credencial de Storage — so fala HTTP com a Function.
+Rotas das atividades (arquivos no bucket de dados):
+  GET  /health
+  POST /transcrever?arquivo=audio-teste.mp3&idioma=pt-BR   (Transcribe, S3 audios/)
+  POST /analisar-reviews?limit=10                           (Comprehend + MongoDB)
+  GET  /analisar-imagem?arquivo=produto.jpg                 (Rekognition, S3 imagens/)
+
+Rotas que recebem o arquivo NO CORPO (usadas pelo app Streamlit):
+  POST /tts     JSON {texto, voz}           -> audio/wav (Polly)
+  POST /stt     corpo = bytes do áudio       -> JSON {transcricao} (Transcribe)
+  POST /visao   corpo = bytes da imagem      -> JSON {tags, texto, objetos} (Rekognition)
+
+GET também é aceito em /transcrever e /analisar-reviews para testar pelo navegador.
 """
+import base64
+import io
 import json
-import logging
 import os
-import requests
-import azure.functions as func
-from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobServiceClient
+import time
+import urllib.request
+import uuid
+import wave
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+import boto3
+from aws_lambda_powertools import Logger
+from aws_lambda_powertools.event_handler import LambdaFunctionUrlResolver, Response
 
-AI_ENDPOINT          = os.environ["AI_ENDPOINT"]
-AI_REGION            = os.environ.get("AI_REGION", "eastus2")
-AI_KEY               = os.environ.get("AI_KEY", "")  # Key Vault reference resolvida pelo runtime
-DATA_STORAGE_ACCOUNT = os.environ["DATA_STORAGE_ACCOUNT"]
-MONGODB_URI          = os.environ["MONGODB_URI"]
+logger = Logger()
+app = LambdaFunctionUrlResolver(serializer=lambda o: json.dumps(o, ensure_ascii=False, default=str))
 
-_credential = DefaultAzureCredential()
-_blob_service = BlobServiceClient(
-    f"https://{DATA_STORAGE_ACCOUNT}.blob.core.windows.net",
-    credential=_credential,
-)
+DATA_BUCKET = os.environ["DATA_BUCKET"]
+MONGO_SECRET_ID = os.environ.get("MONGO_SECRET_ID", "")
+
+# Clientes criados fora do handler: reaproveitados entre invocações quentes
+s3 = boto3.client("s3")
+transcribe = boto3.client("transcribe")
+polly = boto3.client("polly")
+comprehend = boto3.client("comprehend")
+rekognition = boto3.client("rekognition")
+
+VOZES = {"Camila": "pt-BR", "Vitoria": "pt-BR", "Thiago": "pt-BR", "Joanna": "en-US", "Lucia": "es-ES"}
+FORMATOS_AUDIO = {"mp3", "mp4", "wav", "flac", "ogg", "amr", "webm", "m4a"}
 
 
-def _get_speech_token(region: str) -> str:
-    """
-    Troca a subscription key (do Key Vault) por speech token.
-    Speech exige a role 'Cognitive Services Speech User' para MI — usamos key por simplicidade.
-    """
-    resp = requests.post(
-        f"https://{region}.api.cognitive.microsoft.com/sts/v1.0/issueToken",
-        headers={"Ocp-Apim-Subscription-Key": AI_KEY, "Content-Length": "0"},
-        timeout=10,
+# ------------------------------------------------------------------ utilidades
+
+def _corpo_bytes() -> bytes:
+    """Bytes do corpo da requisição (a Function URL manda binário em base64)."""
+    ev = app.current_event.raw_event
+    corpo = ev.get("body") or ""
+    return base64.b64decode(corpo) if ev.get("isBase64Encoded") else corpo.encode()
+
+
+def _erro(msg: str, status: int = 500, **extra) -> Response:
+    return Response(status_code=status, content_type="application/json",
+                    body=json.dumps({"erro": msg, **extra}, ensure_ascii=False))
+
+
+def _transcrever_s3(chave: str, idioma: str, formato: str) -> dict:
+    """Job assíncrono do Transcribe sobre um objeto do S3; espera terminar (áudios curtos)."""
+    job = f"qc-{uuid.uuid4().hex[:8]}"
+    transcribe.start_transcription_job(
+        TranscriptionJobName=job,
+        LanguageCode=idioma,
+        MediaFormat=formato,
+        Media={"MediaFileUri": f"s3://{DATA_BUCKET}/{chave}"},
     )
-    resp.raise_for_status()
-    return resp.text
+    inicio = time.time()
+    while True:
+        st = transcribe.get_transcription_job(TranscriptionJobName=job)["TranscriptionJob"]
+        if st["TranscriptionJobStatus"] in ("COMPLETED", "FAILED"):
+            break
+        if time.time() - inicio > 50:  # a Lambda tem 60 s; deixa margem para responder
+            return {"status": "IN_PROGRESS", "job": job,
+                    "dica": f"áudio longo: consulte depois com aws transcribe get-transcription-job --transcription-job-name {job}"}
+        time.sleep(2)
+
+    if st["TranscriptionJobStatus"] == "FAILED":
+        return {"status": "FAILED", "job": job, "motivo": st.get("FailureReason")}
+
+    # O resultado fica num bucket da AWS, acessível por URL pré-assinada
+    with urllib.request.urlopen(st["Transcript"]["TranscriptFileUri"], timeout=10) as r:
+        resultado = json.load(r)
+    texto = " ".join(t["transcript"] for t in resultado["results"]["transcripts"])
+    return {"status": "COMPLETED", "job": job, "transcricao": texto,
+            "segundos": round(time.time() - inicio, 1)}
 
 
-@app.route(route="health", methods=["GET"])
-def health(req: func.HttpRequest) -> func.HttpResponse:
-    return func.HttpResponse(
-        json.dumps({
-            "status": "ok",
-            "service": "qc-cognitive",
-            "rotas": [
-                "/api/health", "/api/transcrever", "/api/analisar-reviews", "/api/analisar-imagem",
-                "/api/tts", "/api/stt", "/api/visao",
-            ],
-            "ai_endpoint": AI_ENDPOINT,
-        }),
-        mimetype="application/json",
-    )
+def _visao(imagem: dict, largura: int | None = None, altura: int | None = None) -> dict:
+    """Rekognition: rótulos (com caixas) + texto na imagem."""
+    labels = rekognition.detect_labels(Image=imagem, MaxLabels=15, MinConfidence=60)["Labels"]
+    textos = rekognition.detect_text(Image=imagem)["TextDetections"]
+
+    tags = [{"name": l["Name"], "confidence": round(l["Confidence"] / 100, 3)} for l in labels]
+    texto = "\n".join(t["DetectedText"] for t in textos if t["Type"] == "LINE")
+
+    objetos = []
+    for l in labels:
+        for inst in l.get("Instances", []):
+            b = inst["BoundingBox"]  # proporções 0–1 da imagem
+            caixa = {"x": b["Left"], "y": b["Top"], "w": b["Width"], "h": b["Height"]}
+            if largura and altura:  # converte para pixels quando sabemos o tamanho
+                caixa = {"x": round(b["Left"] * largura), "y": round(b["Top"] * altura),
+                         "w": round(b["Width"] * largura), "h": round(b["Height"] * altura)}
+            objetos.append({"label": l["Name"], "confidence": round(inst["Confidence"] / 100, 3), "box": caixa})
+    return {"tags": tags, "texto": texto, "objetos": objetos, "largura": largura, "altura": altura}
 
 
-@app.route(route="transcrever", methods=["GET", "POST"])
-def transcrever(req: func.HttpRequest) -> func.HttpResponse:
+# ------------------------------------------------------------------- rotas lab
+
+@app.get("/health")
+@app.get("/")
+def health():
+    return {
+        "status": "ok",
+        "service": "qc-cognitivo",
+        "rotas": ["/health", "/transcrever", "/analisar-reviews", "/analisar-imagem", "/tts", "/stt", "/visao"],
+        "bucket": DATA_BUCKET,
+    }
+
+
+@app.get("/transcrever")
+@app.post("/transcrever")
+def transcrever():
     """
-    Transcreve áudio WAV do Blob via Azure Speech STT (REST API).
-    GET /api/transcrever?blob=audio-teste.wav&idioma=pt-BR
+    Transcreve um áudio do S3 via Amazon Transcribe.
+    POST /transcrever?arquivo=audio-teste.mp3&idioma=pt-BR
     """
-    blob_name = req.params.get("blob", "audio-teste.wav")
-    container = req.params.get("container", "audios")
-    idioma    = req.params.get("idioma", "pt-BR")
+    q = app.current_event
+    arquivo = q.get_query_string_value("arquivo", "audio-teste.mp3")
+    idioma = q.get_query_string_value("idioma", "pt-BR")
 
+    formato = arquivo.rsplit(".", 1)[-1].lower()  # o formato vem da extensão
+    if formato not in FORMATOS_AUDIO:
+        return _erro(f"formato '{formato}' não suportado", 400, aceitos=sorted(FORMATOS_AUDIO))
     try:
-        # 1. Baixar áudio do Blob via MI
-        blob_client = _blob_service.get_blob_client(container=container, blob=blob_name)
-        audio_bytes = blob_client.download_blob().readall()
-
-        # 2. Obter speech token via key (do Key Vault)
-        token = _get_speech_token(AI_REGION)
-        resp = requests.post(
-            f"https://{AI_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
-                "Accept": "application/json",
-            },
-            params={"language": idioma, "format": "detailed"},
-            data=audio_bytes,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        transcricao = ""
-        if "NBest" in data and data["NBest"]:
-            transcricao = data["NBest"][0].get("Display", "")
-        elif "DisplayText" in data:
-            transcricao = data["DisplayText"]
-
-        return func.HttpResponse(
-            json.dumps({
-                "transcricao": transcricao,
-                "idioma": idioma,
-                "blob": blob_name,
-                "status_stt": data.get("RecognitionStatus", ""),
-            }, ensure_ascii=False),
-            mimetype="application/json",
-        )
-    except Exception as e:
-        logging.exception("Falha em /transcrever")
-        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+        r = _transcrever_s3(f"audios/{arquivo}", idioma, formato)
+        return {**r, "arquivo": arquivo, "idioma": idioma}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Falha em /transcrever")
+        return _erro(str(e))
 
 
-@app.route(route="analisar-reviews", methods=["GET", "POST"])
-def analisar_reviews(req: func.HttpRequest) -> func.HttpResponse:
+_mongo_client = None
+
+
+def _colecao_reviews():
+    """Conecta no MongoDB com a URI do Secrets Manager (uma vez por ambiente quente)."""
+    global _mongo_client
+    from pymongo import MongoClient  # import tardio: só esta rota precisa
+
+    if _mongo_client is None:
+        segredo = boto3.client("secretsmanager").get_secret_value(SecretId=MONGO_SECRET_ID)
+        _mongo_client = MongoClient(json.loads(segredo["SecretString"])["uri"], serverSelectionTimeoutMS=5000)
+    return _mongo_client["qc-db"]["reviews"]
+
+
+@app.get("/analisar-reviews")
+@app.post("/analisar-reviews")
+def analisar_reviews():
     """
-    Lê reviews do MongoDB, analisa sentimento + entidades via Language (MI),
-    e atualiza os documentos com os resultados.
-    POST /api/analisar-reviews?limit=10
+    Lê reviews ainda não analisadas do MongoDB, roda sentimento + entidades no
+    Amazon Comprehend (em lote) e grava o resultado de volta no documento.
+    POST /analisar-reviews?limit=10
     """
-    limit = int(req.params.get("limit", 10))
-
+    limit = int(app.current_event.get_query_string_value("limit", "10"))
     try:
-        from pymongo import MongoClient
-        from azure.ai.textanalytics import TextAnalyticsClient
-
-        # 1. MongoDB
-        mongo = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
-        col = mongo["qc-db"]["reviews"]
-
-        items = list(col.find({"sentimento_label": {"$exists": False}}).limit(limit))
+        col = _colecao_reviews()
+        # O filtro evita reprocessar (e pagar de novo por) reviews já analisadas
+        items = list(col.find({"sentimento": {"$exists": False}}).limit(limit))
         if not items:
-            return func.HttpResponse(
-                json.dumps({"msg": "Nenhuma review nova para analisar. Todas já processadas."}),
-                mimetype="application/json",
-            )
+            return {"msg": "Nenhuma review nova para analisar. Todas já processadas."}
 
-        # 2. Language via MI
-        ta_client = TextAnalyticsClient(endpoint=AI_ENDPOINT, credential=_credential)
-        documentos = [item["texto"] for item in items]
+        textos = [i["texto"] for i in items]
+        # Lote de até 25 documentos por chamada (limite do Comprehend). O Index de
+        # cada resultado é relativo ao lote: somamos o início do lote.
+        sentimentos, entidades = {}, {}
+        for ini in range(0, len(textos), 25):
+            lote = textos[ini:ini + 25]
+            for r in comprehend.batch_detect_sentiment(TextList=lote, LanguageCode="pt")["ResultList"]:
+                sentimentos[ini + r["Index"]] = r
+            for r in comprehend.batch_detect_entities(TextList=lote, LanguageCode="pt")["ResultList"]:
+                entidades[ini + r["Index"]] = r
 
-        # 3. Batch de no máximo 5 (limite do tier S0)
-        BATCH_SIZE = 5
-        sentimentos, entidades = [], []
-        for i in range(0, len(documentos), BATCH_SIZE):
-            batch = documentos[i:i + BATCH_SIZE]
-            sentimentos.extend(ta_client.analyze_sentiment(batch, language="pt"))
-            entidades.extend(ta_client.recognize_entities(batch, language="pt"))
-
-        # 4. Atualizar MongoDB
         resultados = []
-        for i, item in enumerate(items):
-            sent = sentimentos[i]
-            ent  = entidades[i]
-            if sent.is_error or ent.is_error:
+        for idx, item in enumerate(items):
+            s = sentimentos.get(idx)
+            if s is None:  # item foi para a ErrorList (texto vazio, longo demais...)
                 continue
-            update = {
-                "sentimento_label": sent.sentiment,
-                "sentimento_score": {
-                    "positive": round(sent.confidence_scores.positive, 3),
-                    "neutral":  round(sent.confidence_scores.neutral,  3),
-                    "negative": round(sent.confidence_scores.negative, 3),
-                },
-                "entidades": [
-                    {"text": e.text, "category": e.category, "confidence": round(e.confidence_score, 3)}
-                    for e in ent.entities
-                ],
-            }
-            col.update_one({"_id": item["_id"]}, {"$set": update})
-            resultados.append({"id": item.get("id"), "produto": item.get("produto"), "sentimento": sent.sentiment})
+            e = entidades.get(idx, {"Entities": []})
+            col.update_one({"_id": item["_id"]}, {"$set": {
+                "sentimento": s["Sentiment"],
+                "sentimento_score": {k.lower(): round(v, 3) for k, v in s["SentimentScore"].items()},
+                "entidades": [{"text": x["Text"], "type": x["Type"], "score": round(x["Score"], 3)}
+                              for x in e["Entities"]],
+            }})
+            resultados.append({"id": item.get("id"), "produto": item.get("produto"), "sentimento": s["Sentiment"]})
 
-        positivos = sum(1 for r in resultados if r["sentimento"] == "positive")
-        negativos = sum(1 for r in resultados if r["sentimento"] == "negative")
-
-        return func.HttpResponse(
-            json.dumps({
-                "total_analisadas": len(resultados),
-                "positivas": positivos,
-                "negativas": negativos,
-                "neutras":   len(resultados) - positivos - negativos,
-                "exemplos":  resultados[:3],
-            }, ensure_ascii=False),
-            mimetype="application/json",
-        )
-    except Exception as e:
-        logging.exception("Falha em /analisar-reviews")
-        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+        contagem = {k: sum(1 for r in resultados if r["sentimento"] == k)
+                    for k in ("POSITIVE", "NEGATIVE", "NEUTRAL", "MIXED")}
+        return {"total_analisadas": len(resultados), **{k.lower(): v for k, v in contagem.items()},
+                "exemplos": resultados[:3]}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Falha em /analisar-reviews")
+        return _erro(str(e))
 
 
-@app.route(route="analisar-imagem", methods=["GET", "POST"])
-def analisar_imagem(req: func.HttpRequest) -> func.HttpResponse:
+@app.get("/analisar-imagem")
+@app.post("/analisar-imagem")
+def analisar_imagem():
     """
-    Analisa imagem do Blob com Vision 4.0 (Tags + OCR + Objects) via MI.
-    GET /api/analisar-imagem?blob=produto.jpg
+    Analisa uma imagem do S3 com o Amazon Rekognition (rótulos, objetos e texto).
+    GET /analisar-imagem?arquivo=produto.jpg
     """
-    blob_name = req.params.get("blob", "produto.jpg")
-    container = req.params.get("container", "imagens")
-
+    arquivo = app.current_event.get_query_string_value("arquivo", "produto.jpg")
     try:
-        from azure.ai.vision.imageanalysis import ImageAnalysisClient
-        from azure.ai.vision.imageanalysis.models import VisualFeatures
-
-        # 1. Baixar imagem do Blob via MI
-        blob_client = _blob_service.get_blob_client(container=container, blob=blob_name)
-        image_data = blob_client.download_blob().readall()
-
-        # 2. Vision 4.0 via MI
-        vision_client = ImageAnalysisClient(endpoint=AI_ENDPOINT, credential=_credential)
-
-        # Caption não disponível em eastus2 — usar DENSE_CAPTIONS em eastus/westus2/westeurope
-        result = vision_client.analyze(
-            image_data=image_data,
-            visual_features=[VisualFeatures.TAGS, VisualFeatures.READ, VisualFeatures.OBJECTS],
-        )
-
-        tags = [{"name": t.name, "confidence": round(t.confidence, 3)} for t in (result.tags.list if result.tags else [])]
-        texto_extraido = ""
-        if result.read:
-            texto_extraido = "\n".join(line.text for block in result.read.blocks for line in block.lines)
-
-        objetos = []
-        if result.objects and result.objects.list:
-            for obj in result.objects.list:
-                box = obj.bounding_box
-                objetos.append({"label": obj.tags[0].name if obj.tags else "obj",
-                                 "box": {"x": box.x, "y": box.y, "w": box.width, "h": box.height}})
-
-        return func.HttpResponse(
-            json.dumps({"caption": "", "tags": tags[:10], "texto_extraido": texto_extraido,
-                        "objetos_detectados": objetos, "blob": blob_name}, ensure_ascii=False),
-            mimetype="application/json",
-        )
-    except Exception as e:
-        logging.exception("Falha em /analisar-imagem")
-        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+        r = _visao({"S3Object": {"Bucket": DATA_BUCKET, "Name": f"imagens/{arquivo}"}})
+        return {**r, "arquivo": arquivo, "caixas_em": "proporção da imagem (0–1)"}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Falha em /analisar-imagem")
+        return _erro(str(e))
 
 
-# ===========================================================================
-# Rotas para o front-end (app Streamlit da Atividade 5)
-#
-# Diferenca das rotas acima: recebem o arquivo NO CORPO, em vez de um nome de
-# blob. Isso e deliberado — assim o front-end nao precisa de credencial de
-# Storage nenhuma. Ele fala HTTP com a Function, e quem tem identidade para
-# chamar Vision, Speech e Storage e a Function, nao o cliente.
-# ===========================================================================
+# --------------------------------------------------------- rotas do front-end
+# Recebem o arquivo NO CORPO: o app não precisa de credencial nenhuma de S3 ou
+# de IA — só fala HTTP com a Lambda, que é quem tem identidade.
 
-VOZES_PT = {
-    "Antonio (masculina)": "pt-BR-AntonioNeural",
-    "Francisca (feminina)": "pt-BR-FranciscaNeural",
-    "Thalita (feminina)": "pt-BR-ThalitaNeural",
-}
-
-
-@app.route(route="tts", methods=["POST"])
-def tts(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Texto -> Fala. Devolve o WAV em bytes.
-    POST /api/tts  {"texto": "...", "voz": "pt-BR-AntonioNeural", "idioma": "pt-BR"}
-    """
+@app.post("/tts")
+def tts():
+    """Texto → fala com o Amazon Polly. Devolve WAV 16 kHz mono."""
+    corpo = app.current_event.json_body or {}
+    texto = (corpo.get("texto") or "").strip()
+    if not texto:
+        return _erro("campo 'texto' vazio", 400)
+    voz = corpo.get("voz", "Camila")
     try:
-        body = req.get_json()
-        texto = (body.get("texto") or "").strip()
-        if not texto:
-            return func.HttpResponse(
-                json.dumps({"erro": "campo 'texto' vazio"}),
-                mimetype="application/json", status_code=400,
-            )
-
-        voz    = body.get("voz", "pt-BR-AntonioNeural")
-        idioma = body.get("idioma", "pt-BR")
-
-        # escape de XML: sem isso, um "&" ou "<" no texto do aluno quebra o SSML
-        # com um erro 400 que nao explica nada.
-        seguro = (texto.replace("&", "&amp;")
-                       .replace("<", "&lt;")
-                       .replace(">", "&gt;"))
-
-        ssml = (
-            f"<speak version='1.0' xml:lang='{idioma}'>"
-            f"<voice xml:lang='{idioma}' name='{voz}'>{seguro}</voice>"
-            f"</speak>"
-        )
-
-        resp = requests.post(
-            f"https://{AI_REGION}.tts.speech.microsoft.com/cognitiveservices/v1",
-            headers={
-                "Authorization": f"Bearer {_get_speech_token(AI_REGION)}",
-                "Content-Type": "application/ssml+xml",
-                "X-Microsoft-OutputFormat": "riff-16khz-16bit-mono-pcm",
-                "User-Agent": "qc-aula04",
-            },
-            data=ssml.encode("utf-8"),
-            timeout=30,
-        )
-        resp.raise_for_status()
-
-        return func.HttpResponse(resp.content, mimetype="audio/wav", status_code=200)
-
-    except Exception as e:
-        logging.exception("Falha em /tts")
-        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+        pcm = polly.synthesize_speech(Text=texto, VoiceId=voz, Engine="neural",
+                                      OutputFormat="pcm", SampleRate="16000")["AudioStream"].read()
+        saida = io.BytesIO()
+        with wave.open(saida, "wb") as w:  # PCM cru → WAV (o navegador toca)
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(pcm)
+        return Response(status_code=200, content_type="audio/wav", body=saida.getvalue())
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Falha em /tts")
+        return _erro(str(e))
 
 
-@app.route(route="stt", methods=["POST"])
-def stt(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Fala -> Texto. Recebe os bytes do WAV no corpo.
-    POST /api/stt?idioma=pt-BR   (corpo = audio/wav)
-    """
+@app.post("/stt")
+def stt():
+    """Fala → texto. Corpo = bytes do áudio. O Transcribe lê do S3, então o áudio passa por lá."""
+    audio = _corpo_bytes()
+    if not audio:
+        return _erro("corpo vazio — envie os bytes do áudio", 400)
+    idioma = app.current_event.get_query_string_value("idioma", "pt-BR")
+    formato = app.current_event.get_query_string_value("formato", "wav")
+    chave = f"audios/stt-{uuid.uuid4().hex[:8]}.{formato}"
     try:
-        idioma = req.params.get("idioma", "pt-BR")
-        audio = req.get_body()
-        if not audio:
-            return func.HttpResponse(
-                json.dumps({"erro": "corpo vazio — envie os bytes do WAV"}),
-                mimetype="application/json", status_code=400,
-            )
-
-        resp = requests.post(
-            f"https://{AI_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1",
-            headers={
-                "Authorization": f"Bearer {_get_speech_token(AI_REGION)}",
-                # O Speech REST so aceita WAV PCM 16 kHz mono. Áudio de outro
-                # formato retorna 400 ou transcricao vazia.
-                "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
-                "Accept": "application/json",
-            },
-            params={"language": idioma, "format": "detailed"},
-            data=audio,
-            timeout=30,
-        )
-
-        # NAO use raise_for_status aqui. O Speech responde 400 quando o audio nao
-        # esta em WAV PCM 16 kHz mono, e o motivo vem no CORPO da resposta. Deixar
-        # a excecao subir transforma um diagnostico claro num 500 mudo — foi
-        # exatamente o que aconteceu na primeira versao desta rota.
-        if resp.status_code >= 400:
-            return func.HttpResponse(
-                json.dumps({
-                    "erro": "Speech recusou o audio",
-                    "http": resp.status_code,
-                    "detalhe": resp.text[:500],
-                    "dica": ("O endpoint REST aceita WAV PCM 16 bits, MONO, 8 ou 16 kHz. "
-                             "Gravacao de navegador costuma sair em 48 kHz."),
-                    "bytes_recebidos": len(audio),
-                }, ensure_ascii=False),
-                mimetype="application/json", status_code=400,
-            )
-
-        data = resp.json()
-
-        transcricao = ""
-        if data.get("NBest"):
-            transcricao = data["NBest"][0].get("Display", "")
-        elif "DisplayText" in data:
-            transcricao = data["DisplayText"]
-
-        return func.HttpResponse(
-            json.dumps({
-                "transcricao": transcricao,
-                "idioma": idioma,
-                "status_stt": data.get("RecognitionStatus", ""),
-                "bytes_recebidos": len(audio),
-            }, ensure_ascii=False),
-            mimetype="application/json",
-        )
-    except Exception as e:
-        logging.exception("Falha em /stt")
-        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+        s3.put_object(Bucket=DATA_BUCKET, Key=chave, Body=audio)
+        r = _transcrever_s3(chave, idioma, formato)
+        return {**r, "idioma": idioma, "bytes_recebidos": len(audio)}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Falha em /stt")
+        return _erro(str(e))
+    finally:
+        s3.delete_object(Bucket=DATA_BUCKET, Key=chave)
 
 
-@app.route(route="visao", methods=["POST"])
-def visao(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Analise de imagem. Recebe os bytes da imagem no corpo.
-    POST /api/visao   (corpo = image/jpeg ou image/png)
-
-    Devolve tags, texto (OCR) e objetos com bounding box em PIXELS, mais as
-    dimensoes da imagem — o cliente precisa das duas coisas para desenhar as
-    caixas na escala certa.
-    """
+@app.post("/visao")
+def visao():
+    """Análise de imagem. Corpo = bytes da imagem. Caixas em PIXELS."""
+    imagem = _corpo_bytes()
+    if not imagem:
+        return _erro("corpo vazio — envie os bytes da imagem", 400)
+    largura = altura = None
     try:
-        from azure.ai.vision.imageanalysis import ImageAnalysisClient
-        from azure.ai.vision.imageanalysis.models import VisualFeatures
+        largura, altura = _dimensoes(imagem)
+    except Exception:  # noqa: BLE001 — sem dimensão, as caixas saem em proporção
+        pass
+    try:
+        return _visao({"Bytes": imagem}, largura, altura)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Falha em /visao")
+        return _erro(str(e))
 
-        image_data = req.get_body()
-        if not image_data:
-            return func.HttpResponse(
-                json.dumps({"erro": "corpo vazio — envie os bytes da imagem"}),
-                mimetype="application/json", status_code=400,
-            )
 
-        vision_client = ImageAnalysisClient(endpoint=AI_ENDPOINT, credential=_credential)
-        result = vision_client.analyze(
-            image_data=image_data,
-            visual_features=[VisualFeatures.TAGS, VisualFeatures.READ, VisualFeatures.OBJECTS],
-        )
+def _dimensoes(img: bytes) -> tuple[int, int]:
+    """Largura e altura de PNG/JPEG sem depender do Pillow (que não está no runtime)."""
+    if img[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(img[16:20], "big"), int.from_bytes(img[20:24], "big")
+    i = 2
+    while i < len(img):
+        if img[i] != 0xFF:
+            i += 1
+            continue
+        marcador = img[i + 1]
+        tamanho = int.from_bytes(img[i + 2:i + 4], "big")
+        if marcador in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(img[i + 7:i + 9], "big"), int.from_bytes(img[i + 5:i + 7], "big")
+        i += 2 + tamanho
+    raise ValueError("formato de imagem não reconhecido")
 
-        tags = [{"name": t.name, "confidence": round(t.confidence, 3)}
-                for t in (result.tags.list if result.tags else [])]
 
-        texto = ""
-        if result.read:
-            texto = "\n".join(line.text for block in result.read.blocks for line in block.lines)
-
-        objetos = []
-        if result.objects and result.objects.list:
-            for obj in result.objects.list:
-                b = obj.bounding_box
-                objetos.append({
-                    "label": obj.tags[0].name if obj.tags else "objeto",
-                    "confidence": round(obj.tags[0].confidence, 3) if obj.tags else None,
-                    "box": {"x": b.x, "y": b.y, "w": b.width, "h": b.height},
-                })
-
-        return func.HttpResponse(
-            json.dumps({
-                "tags": tags[:15],
-                "texto": texto,
-                "objetos": objetos,
-                "largura": result.metadata.width,
-                "altura": result.metadata.height,
-            }, ensure_ascii=False),
-            mimetype="application/json",
-        )
-    except Exception as e:
-        logging.exception("Falha em /visao")
-        return func.HttpResponse(json.dumps({"erro": str(e)}), mimetype="application/json", status_code=500)
+@logger.inject_lambda_context
+def lambda_handler(event, context):
+    return app.resolve(event, context)

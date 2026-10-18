@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Aula 1 - a MESMA VM do Terraform (lab/terraform), agora em CloudFormation,
+  o IaC nativo da AWS. Use para comparar as duas sintaxes lado a lado.
+
+Parameters:
+  VmName:
+    Type: String
+    Default: vm-lab-aula01-cfn
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.nano, t3.micro, t3.small, t3.medium]
+  KeyName:
+    Description: Key pair existente (no Learner Lab, a vockey já existe)
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: vockey
+  SshCidr:
+    Type: String
+    Default: 0.0.0.0/0
+  # A AMI vem de um parâmetro público mantido pela Canonical no SSM
+  UbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+
+Resources:
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH, HTTP e HTTPS para a VM do lab da Aula 1
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref SshCidr }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+      Tags:
+        - { Key: aula, Value: "1" }
+        - { Key: disciplina, Value: cloud-cognitive }
+        - { Key: projeto, Value: quantum-commerce }
+        - { Key: provisionado, Value: cloudformation }
+
+  Vm:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmi
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SecurityGroupIds: [!GetAtt WebSecurityGroup.GroupId]
+      MetadataOptions:
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeType: gp3, VolumeSize: 8, Encrypted: true }
+      Tags:
+        - { Key: Name, Value: !Ref VmName }
+        - { Key: aula, Value: "1" }
+        - { Key: disciplina, Value: cloud-cognitive }
+        - { Key: projeto, Value: quantum-commerce }
+        - { Key: provisionado, Value: cloudformation }
+
+Outputs:
+  PublicIp:
+    Value: !GetAtt Vm.PublicIp
+  SshCommand:
+    Description: Conexão a partir do CloudShell (baixe o labsuser.pem do Learner Lab)
+    Value: !Sub "ssh -i ~/labsuser.pem ubuntu@${Vm.PublicIp}"

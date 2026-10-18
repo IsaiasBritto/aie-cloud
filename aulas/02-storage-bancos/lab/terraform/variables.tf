@@ -1,96 +1,42 @@
-# ---------------------------------------------------------------------------
-# Regiao por servico.
-#
-# Contas Azure for Students tem uma policy "Allowed resource deployment regions"
-# que limita as regioes permitidas. Descubra as suas com:
-#
-#   az policy assignment list \
-#     --scope "/subscriptions/$(az account show --query id -o tsv)" \
-#     --disable-scope-strict-match \
-#     --query "[].{nome:displayName, params:parameters}" -o json
-#
-# Dentro das regioes permitidas, cada servico ainda pode falhar por um motivo
-# proprio - por isso a regiao e separada por servico e nao unica.
-# ---------------------------------------------------------------------------
-
-variable "location" {
-  description = "Região padrão dos recursos (RG, Storage, Key Vault, Cosmos)"
+variable "region" {
+  description = "Região da AWS (o Learner Lab libera us-east-1 e us-west-2)"
   type        = string
-  default     = "eastus2"
+  default     = "us-east-1"
 }
 
-variable "location_sql" {
-  description = "Região do SQL Server. Em eastus2 as contas Students recebem ProvisioningDisabled."
-  type        = string
-  default     = "canadacentral"
-}
-
-variable "location_search" {
-  description = "Região do AI Search. O SKU free tem cota por região e eastus2 costuma estar esgotada."
-  type        = string
-  default     = "southcentralus"
-}
-
-variable "location_aci" {
-  description = "Região do Container Instance. Cada região tem IPs de saída próprios, logo cota própria no Docker Hub."
-  type        = string
-  default     = "southcentralus"
-}
-
-variable "location_cosmos" {
-  # Null = segue var.location. Existe porque o Cosmos falha com um erro que
-  # NENHUM outro serviço do lab dá: 503 ServiceUnavailable, "high demand in this
-  # region". Não é policy nem cota da sua assinatura — é capacidade da Azure
-  # esgotada naquele momento. A conta pode ficar em região diferente do Resource
-  # Group, então trocar só esta variável não move mais nada.
-  description = "Região do Cosmos DB. Null segue a região padrão. Use outra se der 503 ServiceUnavailable."
-  type        = string
-  default     = null
-}
-
-variable "cosmos_free_tier" {
-  # Mantido desligado: free-tier não beneficia conta serverless e o Azure só
-  # permite 1 conta free-tier por assinatura (trava o lab se já houver outra).
-  description = "Habilita o Free Tier do Cosmos DB (só 1 por assinatura; sem efeito em serverless)"
-  type        = bool
-  default     = false
-}
-
-variable "sql_admin_password" {
-  description = "Senha do admin do Azure SQL Server. Gere uma forte com: openssl rand -base64 24"
+variable "db_password" {
+  description = "Senha do usuário master do RDS. Gere com: openssl rand -hex 16 (o RDS não aceita / @ \" e espaço)"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(var.db_password) >= 8 && can(regex("^[^/@\" ]+$", var.db_password))
+    error_message = "A senha precisa ter 8+ caracteres e não pode conter / @ \" ou espaço."
+  }
 }
 
-# ---------------------------------------------------------------------------
-# Registry das imagens do ACI.
-#
-# Sem estas variaveis o lab puxa do Docker Hub publico, o que funciona em uso
-# individual mas estoura o rate limit anonimo (100 pulls/6h por IP compartilhado
-# da regiao) quando a turma inteira roda junto.
-#
-# Para usar um ACR da disciplina:
-#   export TF_VAR_registry_server="meuacr.azurecr.io"
-#   export TF_VAR_registry_user="$(az acr credential show -n meuacr --query username -o tsv)"
-#   export TF_VAR_registry_password="$(az acr credential show -n meuacr --query 'passwords[0].value' -o tsv)"
-# ---------------------------------------------------------------------------
-
-variable "registry_server" {
-  description = "Ex: meuacr.azurecr.io. Null = Docker Hub público."
-  type        = string
-  default     = null
-}
-
-variable "registry_user" {
-  description = "Usuário do registry. Null = pull anônimo."
+variable "mongo_password" {
+  description = "Senha do admin do MongoDB (lab). Fica no Secrets Manager; o Terraform só a injeta na EC2"
   type        = string
   sensitive   = true
-  default     = null
+  default     = "QCadmin2024!"
 }
 
-variable "registry_password" {
-  description = "Senha ou token do registry."
+variable "mongo_instance_type" {
+  description = "Tipo da EC2 do MongoDB (MongoDB 7 pede ~1 GB livre de RAM)"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "mongo_ui_cidr" {
+  description = "Origem liberada para o Mongo Express (porta 8081). Para restringir ao seu navegador: \"<seu-ip>/32\""
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "mongo_ui_password" {
+  description = "Senha do Mongo Express (usuário qcadmin)"
   type        = string
   sensitive   = true
-  default     = null
+  default     = "QCview2024!"
 }

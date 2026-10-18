@@ -16,9 +16,9 @@ Esta é a **primeira entrega de grupo** da disciplina. Ao todo são 5 entregas i
 
 Os 3 níveis de exercícios são **divisão de trabalho dentro do grupo**, não escolha individual livre:
 
-- 🟢 **Nível 1 — Básico:** consolidação dos conceitos da aula (modelos de serviço, 6 Rs, SLA, RBAC)
+- 🟢 **Nível 1 — Básico:** consolidação dos conceitos da aula (modelos de serviço, 6 Rs, SLA, IAM)
 - 🟡 **Nível 2 — Intermediário:** bloco do projeto Quantum Commerce (arquitetura, comparativo de custos, migração)
-- 🔴 **Nível 3 — Avançado:** **bônus opcional** — Network Security via Terraform, Bicep equivalente, multi-cloud
+- 🔴 **Nível 3 — Avançado:** **bônus opcional** — Network Security via Terraform, CloudFormation equivalente, multi-cloud
 
 **Mínimo obrigatório:** N1 + N2 cobertos. **N3 é bônus** (até +2 pts extras na nota da aula).
 
@@ -34,7 +34,7 @@ Os 3 níveis de exercícios são **divisão de trabalho dentro do grupo**, não 
 
 Use o [template em `entregas/template-entrega-grupo.md`](../../entregas/template-entrega-grupo.md) — inclui cabeçalho de grupo, distribuição de trabalho, respostas dos níveis e reflexão coletiva.
 
-> **Política "no install":** Todos os exercícios podem ser feitos no Azure Cloud Shell + editor `code` (ou github.dev). Não instale nada localmente.
+> **Política "no install":** Todos os exercícios podem ser feitos no AWS CloudShell (com `nano`/`vim`) ou no github.dev. Não instale nada localmente.
 
 ---
 
@@ -47,14 +47,14 @@ Para cada serviço, identifique se é IaaS, PaaS, SaaS ou FaaS. Justifique em um
 | Serviço | Modelo (IaaS/PaaS/SaaS/FaaS) | Justificativa |
 |---------|------------------------------|---------------|
 | Gmail | | |
-| Azure Virtual Machines | | |
-| Azure App Service (hospedar uma API) | | |
+| Amazon EC2 | | |
+| AWS Elastic Beanstalk (hospedar uma API) | | |
 | AWS Lambda | | |
-| Azure SQL Database | | |
+| Amazon RDS for PostgreSQL | | |
 | Salesforce CRM | | |
 | Google Kubernetes Engine (GKE) | | |
-| Azure Blob Storage | | |
-| Azure OpenAI Service | | |
+| Amazon S3 | | |
+| Amazon Bedrock | | |
 
 **Gabarito esperado:**
 
@@ -64,14 +64,14 @@ Para cada serviço, identifique se é IaaS, PaaS, SaaS ou FaaS. Justifique em um
 | Serviço | Modelo | Justificativa |
 |---------|--------|---------------|
 | Gmail | SaaS | Aplicação completa entregue ao usuário; você não gerencia nada da infra |
-| Azure Virtual Machines | IaaS | Você gerencia SO, patches e aplicações; Azure só fornece hardware virtualizado |
-| Azure App Service | PaaS | Azure gerencia SO e runtime; você só implanta o código |
+| Amazon EC2 | IaaS | Você gerencia SO, patches e aplicações; a AWS só fornece hardware virtualizado |
+| AWS Elastic Beanstalk | PaaS | A AWS gerencia SO e runtime; você só implanta o código |
 | AWS Lambda | FaaS | Você escreve apenas a função; sem servidor fixo, paga por execução |
-| Azure SQL Database | PaaS | Azure gerencia motor de banco; você gerencia dados e esquema |
+| Amazon RDS for PostgreSQL | PaaS | A AWS gerencia o motor do banco; você gerencia dados e esquema |
 | Salesforce CRM | SaaS | Aplicação completa entregue como serviço |
 | GKE | PaaS/IaaS (híbrido) | Você gerencia os pods; GCP gerencia o plano de controle do K8s |
-| Azure Blob Storage | PaaS (a maioria considera) | Storage gerenciado; você gerencia dados e políticas |
-| Azure OpenAI Service | SaaS / API-as-a-Service | API pronta — você consome via REST sem gerenciar modelo ou infra |
+| Amazon S3 | PaaS (a maioria considera) | Storage gerenciado; você gerencia dados e políticas |
+| Amazon Bedrock | SaaS / API-as-a-Service | API pronta — você consome via API sem gerenciar modelo ou infra |
 
 </details>
 
@@ -107,30 +107,30 @@ c) Para reduzir o impacto para menos de R$ 50.000/ano, qual SLA mínimo seria ne
 
 ---
 
-### Exercício 1.4 — RBAC na prática
+### Exercício 1.4 — IAM na prática
 
-Você é o responsável de segurança da Quantum Commerce. Para cada perfil abaixo, escolha a role built-in do Azure mais adequada e justifique:
+Você é o responsável de segurança da Quantum Commerce. Para cada perfil abaixo, escolha a política gerenciada da AWS (ou descreva a política customizada) mais adequada e justifique:
 
-| Perfil | Role Azure mais adequada | Justificativa |
+| Perfil | Política IAM mais adequada | Justificativa |
 |--------|--------------------------|---------------|
-| Agente de IA que LÊ produtos do Storage para responder ao cliente | | |
-| Engenheiro de dados que CARREGA novos catálogos no Blob | | |
+| Agente de IA que LÊ produtos do S3 para responder ao cliente | | |
+| Engenheiro de dados que CARREGA novos catálogos no S3 | | |
 | Time de FinOps que precisa VER custos sem alterar recursos | | |
-| Auditor externo que precisa LER configurações de toda a assinatura | | |
+| Auditor externo que precisa LER configurações de toda a conta | | |
 | Sistema de CI/CD que provisiona infraestrutura via Terraform | | |
 
-**Referência:** [Azure Built-in Roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles)
+**Referência:** [AWS managed policies for job functions](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_job-functions.html)
 
 <details>
 <summary>Sugestões de gabarito (existem múltiplas respostas válidas)</summary>
 
-- Agente que lê produtos: **Storage Blob Data Reader** (acesso só de leitura no plano de dados)
-- Engenheiro de dados que carrega: **Storage Blob Data Contributor**
-- FinOps: **Cost Management Reader** ou **Billing Reader**
-- Auditor externo: **Reader** na assinatura
-- CI/CD provisionando IaC: **Contributor** no Resource Group específico (não na assinatura) + Service Principal dedicado
+- Agente que lê produtos: política customizada com `s3:GetObject` (e `s3:ListBucket`) restrita ao ARN do bucket/prefixo — não `AmazonS3ReadOnlyAccess`, que lê todos os buckets
+- Engenheiro de dados que carrega: `s3:PutObject` restrito ao prefixo `catalogo/`
+- FinOps: **AWSBillingReadOnlyAccess** (ou acesso de leitura ao Cost Explorer)
+- Auditor externo: **SecurityAudit** ou **ViewOnlyAccess**, via role assumida (sem usuário IAM permanente)
+- CI/CD provisionando IaC: role dedicada assumida via **OIDC** (GitHub Actions), com permissões só dos serviços do projeto — nunca `AdministratorAccess`
 
-**Princípio:** O menor privilégio possível para a tarefa. Nunca dar Owner ou Contributor da assinatura quando uma role escoped basta.
+**Princípio:** O menor privilégio possível para a tarefa. Nunca dar `AdministratorAccess` (ou `*:*`) quando uma política restrita ao recurso basta.
 
 </details>
 
@@ -148,7 +148,7 @@ Você é o responsável de segurança da Quantum Commerce. Para cada perfil abai
 2. **Provedor principal** — qual escolheria (Azure, AWS, GCP) e por quê
 3. **Serviços por categoria** — preencha a tabela:
 
-| Categoria | Serviço Azure | Alternativa AWS | Alternativa GCP |
+| Categoria | Serviço AWS | Alternativa Azure | Alternativa GCP |
 |-----------|--------------|-----------------|-----------------|
 | Compute (backend) | | | |
 | Storage (catálogo, imagens) | | | |
@@ -175,7 +175,7 @@ Você precisa recomendar infraestrutura para um projeto de AI Engineering. Use a
 - 1 banco gerenciado com 2 vCPUs / 8 GB RAM / 100 GB
 - 10 milhões de requisições/mês para função serverless
 
-| Item | Azure | AWS | GCP | Notas |
+| Item | AWS | Azure | GCP | Notas |
 |------|-------|-----|-----|-------|
 | 2 × VM (2vCPU/8GB) | | | | Tipo: |
 | 500 GB storage | | | | Tipo: |
@@ -192,8 +192,8 @@ c) Além de preço, que outros fatores você consideraria para um projeto de IA?
 
 **Calculadoras:**
 
-- Azure: https://azure.microsoft.com/pricing/calculator
 - AWS: https://calculator.aws
+- Azure: https://azure.microsoft.com/pricing/calculator
 - GCP: https://cloud.google.com/products/calculator
 
 ---
@@ -204,7 +204,7 @@ Pense no seu contexto profissional atual (ou empresa que conhece bem).
 
 a) Descreva um sistema/workload (sem dados confidenciais — pode ser genérico)
 b) Qual dos 6 Rs você aplicaria? Justifique custo, risco, ganho, prazo
-c) Que serviço Azure usaria? Estimativa mensal?
+c) Que serviço AWS usaria? Estimativa mensal?
 d) Maior obstáculo técnico ou organizacional? Como endereçaria?
 
 ---
@@ -213,55 +213,59 @@ d) Maior obstáculo técnico ou organizacional? Como endereçaria?
 
 ### Exercício 3.1 — Terraform: endurecer a segurança de rede da VM
 
-**Tudo no Cloud Shell — sem instalação.**
+**Tudo no CloudShell — sem instalação.**
 
-O `main.tf` do lab (Atividade 5) já provisiona a VM com VNet + NSG, mas o NSG vem do portal com a regra **SSH liberada para qualquer origem (`*`)** — uma má prática. **Modifique** o código do lab para deixá-lo mais seguro:
+O `main.tf` do lab (Atividade 5) já provisiona a EC2 com um security group, mas a regra de **SSH vem liberada para qualquer origem (`0.0.0.0/0`)** — uma má prática. **Modifique** o código do lab para deixá-lo mais seguro:
 
-1. **Restrinja o SSH (porta 22)** para aceitar conexões **apenas do seu IP público** (`curl ifconfig.me` no Cloud Shell para obter). Use uma variável `meu_ip` em vez de hardcode.
-2. **Adicione uma segunda subnet** chamada `subnet-app` com `10.0.2.0/24` na mesma VNet, pensando em isolar a futura camada de aplicação da QC.
+1. **Restrinja o SSH (porta 22)** para aceitar conexões **apenas do seu IP público** (`curl -s https://checkip.amazonaws.com` no CloudShell para obter o IP de saída). Use a variável `ssh_cidr` (ou uma nova `meu_ip`) em vez de hardcode.
+2. **Crie um segundo security group** `sg-app` que só aceita a porta 8080 **vindo do security group da VM** (referência entre security groups, não CIDR) — pensando em isolar a futura camada de aplicação da QC.
 3. **Adicione um output** que exponha apenas o IP público da VM (já existe `public_ip_address` — confirme que aparece após o `apply`).
-4. Rode `terraform plan` e identifique no diff **exatamente** qual regra do NSG mudou (não deve recriar a VM).
+4. Rode `terraform plan` e identifique no diff **exatamente** qual regra do security group mudou (não deve recriar a VM).
 
 **Critérios:**
 
-- `terraform plan` + `apply` rodam sem erro e **não recriam** a VM (apenas atualizam o NSG/rede)
+- `terraform plan` + `apply` rodam sem erro e **não recriam** a VM (apenas atualizam o security group)
 - `terraform destroy` ao final remove tudo
 - Código commitado no repositório privado do grupo
 
 **Dica:** Documentação dos recursos:
 
-- `azurerm_network_security_group` (bloco `security_rule` → `source_address_prefix`)
-- `azurerm_subnet`
-- variável `variable "meu_ip"` + `${var.meu_ip}/32`
+- `aws_security_group` (bloco `ingress` → `cidr_blocks`) ou `aws_vpc_security_group_ingress_rule`
+- `referenced_security_group_id` para a regra entre security groups
+- variável `variable "meu_ip"` + `"${var.meu_ip}/32"`
+
+> No CloudShell o IP de saída muda entre sessões. Se o SSH parar de funcionar, rode de novo com o IP atual — é exatamente por isso que em produção se usa **SSM Session Manager** em vez de porta 22 aberta.
 
 ---
 
-### Exercício 3.2 — Bicep equivalente
+### Exercício 3.2 — CloudFormation equivalente
 
-Pegue o `main.tf` do lab (a VM + rede) e **traduza para Bicep** — ou parta do `template.json` em `aulas/01-fundamentos-iac/template/` e decompile.
+Pegue o `main.tf` do lab (EC2 + security group) e **traduza para CloudFormation** — ou parta do exemplo em [`lab/cloudformation/ec2-lab.yaml`](lab/cloudformation/ec2-lab.yaml) e evolua.
 
-**Tudo no Cloud Shell — `bicep` já está instalado.**
+**Tudo no CloudShell — a AWS CLI já tem tudo o que é preciso.**
 
-1. Crie `main.bicep` em `~/aula01-bicep/` (ou gere com `bicep decompile template.json --outfile main.bicep`)
-2. Implemente os mesmos recursos do lab (RG + VNet + Subnet + NSG + IP + NIC + VM Linux Ubuntu 24.04)
-3. Faça deploy com:
+1. Crie `template.yaml` em `~/aula01-cfn/`
+2. Implemente os mesmos recursos do lab (security group + EC2 Ubuntu 24.04 + tags), incluindo o endurecimento do exercício 3.1 como **parâmetro** (`SshCidr`)
+3. Faça deploy:
 
 ```bash
-# Bicep precisa do RG já existente OU usar subscription scope
-az group create --name rg-bicep-aula01 --location eastus2
+cd ~/aula01-cfn
+aws cloudformation validate-template --template-body file://template.yaml
 
-az deployment group create \
-  --resource-group rg-bicep-aula01 \
-  --template-file main.bicep \
-  --parameters adminPublicKey="$(cat ~/.ssh/id_rsa.pub)"
+aws cloudformation deploy \
+  --stack-name aula01-grupo \
+  --template-file template.yaml \
+  --parameter-overrides SshCidr="$(curl -s https://checkip.amazonaws.com)/32"
+
+aws cloudformation describe-stacks --stack-name aula01-grupo --query "Stacks[0].Outputs"
 ```
 
-4. Compare os três artefatos lado a lado e responda no README do grupo:
-   - Quantas linhas tem cada arquivo (`template.json` ARM × `main.tf` Terraform × `main.bicep`)?
-   - Qual ficou mais legível para você?
-   - Em que cenário você escolheria Bicep sobre Terraform?
+4. Compare os artefatos e responda no README do grupo:
+   - Quantas linhas tem cada arquivo (`main.tf` × `template.yaml`)?
+   - Onde fica o **estado** em cada um? O que acontece se alguém apagar a EC2 pelo console (*drift*)? Teste `aws cloudformation detect-stack-drift`.
+   - Em que cenário você escolheria CloudFormation sobre Terraform?
 
-5. **Não esqueça:** `az group delete --name rg-bicep-aula01 --yes --no-wait` ao final.
+5. **Não esqueça:** `aws cloudformation delete-stack --stack-name aula01-grupo` ao final.
 
 ---
 
@@ -279,9 +283,9 @@ c) **Compare 2 ferramentas IaC multi-cloud:**
 
    Para cada: linguagem, pricing, suporte aos 3 grandes, quando escolher.
 
-d) **Estime custo de egress:** 10 TB/mês entre Azure (Brazil South) e AWS (us-east-1). Consulte tabelas de preço e calcule.
+d) **Estime custo de egress:** 10 TB/mês entre AWS (us-east-1) e Azure (Brazil South). Consulte tabelas de preço e calcule.
 
-> **Dica avançada:** Pesquise **Azure Arc** e **AWS Outposts** — como se encaixariam na QC?
+> **Dica avançada:** Pesquise **AWS Outposts** e **Azure Arc** — como se encaixariam na QC?
 
 ---
 
@@ -294,7 +298,7 @@ A entrega é **um ZIP por grupo** (`entrega-grupo-NN-aula01.zip`) no Portal FIAP
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
 | 🟢 N1 — Exercícios 1.1, 1.2, 1.3, 1.4 respondidos | ✅ Sim | 3 pts (Critério 1) |
 | 🟡 N2 — Exercícios 2.1 (com diagrama), 2.2, 2.3 | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
-| 🔴 N3 — Exercícios 3.1, 3.2, 3.3 (código Terraform/Bicep + README) | 🎁 Bônus | até +2 pts extras |
+| 🔴 N3 — Exercícios 3.1, 3.2, 3.3 (código Terraform/CloudFormation + README) | 🎁 Bônus | até +2 pts extras |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total da entrega** | | **10 pts** (10% da nota final) |
 

@@ -1,8 +1,13 @@
 """
 Semeia reviews de exemplo no MongoDB da Aula 4.
-Uso: python3 semear_reviews.py
-Variável de ambiente: MONGO_IP (IP público do ACI)
-  export MONGO_IP=$(cd ~/qc-grupo-NN/aula04/terraform && terraform output -raw mongodb_public_ip)
+
+Uso:  python3 scripts/semear_reviews.py
+Variável de ambiente: MONGO_IP (IP público da EC2 do MongoDB)
+  export MONGO_IP=$(cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform && terraform output -raw mongodb_public_ip)
+
+⚠ EXERCÍCIO DE SEGURANÇA: este script tem uma falha de propósito. Você consegue
+achá-la? Como consertar? (dica: compare com a Lambda, que lê a mesma conexão do
+Secrets Manager.)
 """
 import os
 import sys
@@ -10,8 +15,8 @@ import time
 
 MONGO_IP = os.environ.get("MONGO_IP")
 if not MONGO_IP:
-    print("Exporte MONGO_IP com o IP do ACI:")
-    print("  export MONGO_IP=$(cd ~/qc-grupo-NN/aula04/terraform && terraform output -raw mongodb_public_ip)")
+    print("Exporte MONGO_IP com o IP da EC2:")
+    print("  export MONGO_IP=$(cd ~/aie-cloud/aulas/04-servicos-cognitivos/lab/terraform && terraform output -raw mongodb_public_ip)")
     sys.exit(1)
 
 try:
@@ -25,17 +30,17 @@ except ImportError:
 URI = f"mongodb://admin:QCadmin2024!@{MONGO_IP}:27017/?authSource=admin"
 
 print(f"Conectando ao MongoDB em {MONGO_IP}:27017...")
-for tentativa in range(10):
+for tentativa in range(12):
     try:
         client = MongoClient(URI, serverSelectionTimeoutMS=5000)
         client.server_info()
         print("✓ MongoDB pronto!")
         break
     except errors.ServerSelectionTimeoutError:
-        print(f"  Aguardando MongoDB... (tentativa {tentativa+1}/10)")
+        print(f"  Aguardando MongoDB... (tentativa {tentativa + 1}/12)")
         time.sleep(10)
 else:
-    print("✗ MongoDB não respondeu após 100s")
+    print("✗ MongoDB não respondeu após 2 min — a EC2 ainda está subindo os containers?")
     sys.exit(1)
 
 db = client["qc-db"]
@@ -66,5 +71,5 @@ for stars in range(1, 6):
     print(f"  {bar}: {count} reviews")
 
 client.close()
-print(f"\n✅ MongoDB pronto para uso!")
-print(f"   Mongo Express: http://{MONGO_IP}:8081 (abre direto, sem login)")
+print("\n✅ MongoDB pronto para uso!")
+print(f"   Mongo Express: http://{MONGO_IP}:8081 (usuário qcadmin, senha QCview2024!)")

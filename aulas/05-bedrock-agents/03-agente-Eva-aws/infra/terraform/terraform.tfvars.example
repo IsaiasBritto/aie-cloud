@@ -1,0 +1,16 @@
+# Copie para terraform.tfvars (ignorado pelo Git) e ajuste.
+# A chave da OpenAI NÃO vai aqui: export TF_VAR_openai_api_key=sk-...
+
+# Learner Lab: o Bedrock não é liberado — use openai.
+provedor = "openai"
+
+# Conta comum (demo do professor):
+# provedor   = "bedrock"
+# criar_role = true
+
+responsavel = "rm00000"
+
+# Preços do modelo, USD por 1 milhão de tokens (confira a página de preços).
+# Referência na data de revisão: gpt-4o-mini 0.15 / 0.60 · Nova Lite 0.06 / 0.24
+preco_entrada_por_1m = "0.15"
+preco_saida_por_1m   = "0.60"

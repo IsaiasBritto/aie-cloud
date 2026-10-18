@@ -9,7 +9,9 @@ Repositório de labs, exercícios e código de infraestrutura da disciplina **Cl
 
 ## Sobre a disciplina
 
-A disciplina forma a base de infraestrutura cloud sobre a qual o restante do MBA constrói soluções de Agentic AI. São **6 aulas de 4 horas**, com forte componente prático — todos os labs rodam **sem instalação local** no [Azure Cloud Shell](https://shell.azure.com).
+A disciplina forma a base de infraestrutura cloud sobre a qual o restante do MBA constrói soluções de Agentic AI. São **6 aulas de 4 horas**, com forte componente prático — todos os labs rodam **sem instalação local**, na **AWS**, pelo **AWS Academy Learner Lab** e o **AWS CloudShell**.
+
+> **Versão AWS.** Este material foi convertido da versão Azure original. O de-para de serviços está no [glossário](recursos/glossario.md).
 
 | # | Tema |
 |---|------|
@@ -17,7 +19,7 @@ A disciplina forma a base de infraestrutura cloud sobre a qual o restante do MBA
 | 2 | [Storage & Bancos](aulas/02-storage-bancos/) |
 | 3 | [Serverless & Containers](aulas/03-serverless-containers/) |
 | 4 | [Serviços Cognitivos](aulas/04-servicos-cognitivos/) |
-| 5 | [MLOps](aulas/05-mlops/) |
+| 5 | [Agentes com Amazon Bedrock](aulas/05-bedrock-agents/) · [MLOps com SageMaker AI](aulas/05-mlops/) |
 | 6 | [FinOps & Projeto Final](aulas/06-finops-projeto-final/) |
 
 ---
@@ -26,9 +28,9 @@ A disciplina forma a base de infraestrutura cloud sobre a qual o restante do MBA
 
 Leia o [SETUP.md](SETUP.md) — ele cobre os 3 passos obrigatórios antes da Aula 1:
 
-1. Ativar **Azure for Students** com seu e-mail `@fiap.com.br` (gratuito, $100 de crédito, sem cartão de crédito).
-2. Abrir o **Azure Cloud Shell** (`shell.azure.com`) — ambiente pronto com `az`, `terraform`, `bicep`, `python3`, `git`.
-3. Clonar este repositório dentro do Cloud Shell.
+1. Entrar no **AWS Academy Learner Lab** pelo convite da turma (gratuito, crédito do lab, sem cartão de crédito).
+2. Abrir o **AWS CloudShell** — ambiente pronto com `aws`, `python3`, `git` e `docker`; o Terraform é instalado no seu `$HOME` com um script da Aula 1.
+3. Clonar este repositório dentro do CloudShell.
 
 ---
 

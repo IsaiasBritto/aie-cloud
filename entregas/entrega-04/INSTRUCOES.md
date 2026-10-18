@@ -13,7 +13,7 @@
 | Cabeçalho do grupo + distribuição do trabalho | ✅ Sim | 1 pt (Critério 4) |
 | 🟢 N1 — Exercícios 1.1 (pronto/custom/LLM), 1.2 (custo mensal), 1.3 (segurança MI vs API key), 1.4 (Vision capabilities) | ✅ Sim | 3 pts (Critério 1) |
 | 🟡 N2 — 2.1 (pipeline robusto: summary + PII + opinion mining), 2.2 (casos de Speech na QC), 2.3 (Vision pronto vs Custom Vision) | ✅ Sim | 3 pts (Critério 2) + 2 pts qualidade técnica (Critério 3) |
-| 🔴 N3 — 3.1 (embeddings reais com Azure OpenAI), 3.2 (Custom Vision), 3.3 (sumarização LLM) | 🎁 Bônus | até +2 pts extras |
+| 🔴 N3 — 3.1 (embeddings reais no pgvector), 3.2 (Rekognition Custom Labels), 3.3 (sumarização com LLM no Bedrock) | 🎁 Bônus | até +2 pts extras |
 | Reflexão coletiva ao final | ✅ Sim | 1 pt (Critério 5) |
 | **Total** | | **10 pts** |
 
@@ -29,8 +29,8 @@ Nome: `entrega-grupo-NN-aula04.zip`.
 qc-grupo-NN-aula04/
 ├── entrega-grupo-aula04.md       # ⭐ documento principal (template em ../template-entrega-grupo.md)
 ├── README.md                     # Como rodar o pipeline (deploy + curl de cada rota)
-├── terraform/                    # main.tf evoluído (AI Services + KV + Function + roles, e Azure OpenAI se N3.1)
-├── function/                     # function_app.py com rotas adicionais (sumarização se N2.1/N3.3)
+├── terraform/                    # main.tf evoluído (Lambda + S3 + Secrets Manager + Mongo, e o que o N3 exigir)
+├── function/                     # function_app.py (Lambda + Powertools) com rotas adicionais (sumarização se N2.1/N3.3)
 ├── scripts/                      # Python: re-indexação com embeddings (se N3.1)
 └── diagramas/
     └── arquitetura-qc-aula04.png # QC atualizada com a camada cognitiva (Speech/Language/Vision)
@@ -63,9 +63,9 @@ Upload no Portal FIAP, tarefa "Entrega Aula 4".
 
 [Rubrica única](../rubrica.md). **Foco específico desta entrega:**
 
-- **N1:** dominar a tríade **pronta/custom/LLM** e identificar o pré-requisito de **custom subdomain + role** para Managed Identity no AI Services.
+- **N1:** dominar a tríade **pronta/custom/LLM** e explicar como a Lambda autentica nos serviços de IA **pela role** (execution role), sem chave no código.
 - **N2:** o **pipeline robusto de reviews** (com PII redaction + summarization + opinion mining) é o que torna o sentimento útil para o agente da QC tomar decisões reais. **Vision pronto vs Custom** é decisão de produto a ser justificada.
-- **N3 (bônus):** o **3.1 (embeddings reais)** é o **fechamento do RAG** começado na Aula 2 — usa Azure OpenAI para gerar vetores e re-indexa o AI Search. É a base do agente conversacional da QC. **Muito valorizado.**
+- **N3 (bônus):** o **3.1 (embeddings reais)** é o **fechamento do RAG** começado na Aula 2 — gera vetores reais e re-indexa a tabela `produtos_vetor` do pgvector (Aula 2). É a base do agente conversacional da QC. **Muito valorizado.**
 - **Reflexão:** discutir como a **chain pronta + custom + LLM** muda a arquitetura ao longo do ciclo de vida do produto (MVP → escala) e o impacto de custo.
 
 ---

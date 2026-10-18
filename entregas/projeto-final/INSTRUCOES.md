@@ -39,17 +39,16 @@ projeto-integrado-grupo-NN/
 │   ├── storage.tf
 │   ├── databases.tf
 │   ├── cognitive.tf
-│   ├── function.tf
+│   ├── lambda.tf
 │   ├── ml.tf
 │   └── README.md                          # Como aplicar e destruir
-├── function/                              # ⭐ Function consolidada com 5 tools
-│   ├── function_app.py
-│   ├── host.json
+├── function/                              # ⭐ Lambda consolidada com 5 tools
+│   ├── function_app.py                    # handler (Powertools) ou lambda_function.py
 │   ├── requirements.txt
 │   └── README.md
 ├── tools-spec.md                          # ⭐ JSON Schema das 5 tools (formato function calling)
 ├── finops/                                # ⭐ Análise FinOps
-│   ├── estimativa-qc.xlsx                 # Export do Pricing Calculator
+│   ├── estimativa-qc.csv                  # Export do AWS Pricing Calculator
 │   ├── analise-otimizacao.md              # Top 3 caros + propostas
 │   └── pricing-calculator-link.md         # Link compartilhável da estimativa
 └── reflexao-estrategica.md                # ⭐ Roadmap 12 meses + lições aprendidas
@@ -103,13 +102,13 @@ Estrutura sugerida:
 Em 2-3 parágrafos: o que a QC precisa, qual a proposta da nossa arquitetura, decisões-chave.
 
 ## Stack escolhida
-Tabela: serviço Azure | propósito | custo mensal | alternativas consideradas
+Tabela: serviço AWS | propósito | custo mensal | alternativas consideradas
 
 ## Como executar
 Passos para alguém de fora reproduzir o ambiente:
 1. terraform init && terraform apply
 2. (popular dados de exemplo)
-3. (deploy da Function)
+3. (deploy da Lambda — código via `aws lambda update-function-code`)
 4. (testar as 5 tools)
 
 ## Estrutura do repositório
@@ -127,12 +126,12 @@ Padrão MIT ou CC.
 Diagrama da arquitetura completa, com todas as camadas:
 
 - **Frontend** (não construído, apenas marcado como integração)
-- **API / Function** (5 tools)
-- **Dados:** Blob, Azure SQL, Cosmos DB, AI Search
-- **Cognitivos:** Speech, Language, Vision
-- **ML:** Azure ML Workspace + Online Endpoint
-- **Identidade & Segredos:** Key Vault + Managed Identity (transversal)
-- **Observabilidade:** Application Insights (transversal)
+- **API / Lambda** (5 tools, Function URL)
+- **Dados:** S3, RDS PostgreSQL + pgvector, DynamoDB (e/ou MongoDB)
+- **Cognitivos:** Transcribe, Polly, Comprehend, Rekognition
+- **ML:** SageMaker AI (Training Job + Model Registry + endpoint)
+- **Identidade & Segredos:** IAM roles + Secrets Manager (transversal)
+- **Observabilidade:** CloudWatch Logs / Metrics / Logs Insights (transversal)
 - **Setas** mostrando fluxos de dados e chamadas de tools
 
 Ferramentas aceitas: Excalidraw, draw.io, Visio, Lucid, Mermaid, foto de quadro branco (legível).
@@ -146,44 +145,44 @@ Estilo **Architecture Decision Records (ADR)** — para cada decisão importante
 - **Opções consideradas:** quais alternativas
 - **Consequências:** trade-offs aceitos
 
-Mínimo de **5 decisões** documentadas (ex.: "por que Azure SQL e não PostgreSQL", "por que ACI e não Container Apps no MVP", "por que Managed Identity em vez de Key Vault Secret", etc.).
+Mínimo de **5 decisões** documentadas (ex.: "por que RDS PostgreSQL com pgvector e não OpenSearch", "por que Lambda e não ECS Fargate no MVP", "por que IAM role em vez de segredo no Secrets Manager", "por que endpoint serverless e não instância 24/7", etc.).
 
 ### 4. terraform/ (IaC consolidado)
 
 - **Único projeto Terraform** que provisiona TODA a infra QC com `terraform apply`
-- Arquivos separados por domínio (`storage.tf`, `databases.tf`, `cognitive.tf`, `ml.tf`, `function.tf`)
-- `variables.tf` com tudo parametrizável (location, sufixo, etc.)
+- Arquivos separados por domínio (`storage.tf`, `databases.tf`, `cognitive.tf`, `ml.tf`, `lambda.tf`)
+- `variables.tf` com tudo parametrizável (region, sufixo, etc.)
 - `outputs.tf` expondo endpoints e nomes
 - `README.md` explicando ordem de execução e como destruir
 
-**Critério de aceitação:** `terraform plan` roda sem erros.
+**Critério de aceitação:** `terraform validate` e `terraform plan` rodam sem erros (no Learner Lab, usando a `LabRole`).
 
 > Não é exigido que `terraform apply` seja executado pelo professor durante a correção — basta que o `plan` valide.
 
 ### 5. function/ (5 tools)
 
-Function consolidada com as rotas:
+Lambda consolidada com as rotas:
 
 | Rota | Aula | O que faz |
 |------|------|-----------|
-| `/produtos` | 3 | Lista produtos do Blob filtrados por categoria/nome |
-| `/transcrever` | 4 | Speech-to-Text de áudio do Blob |
-| `/analisar-reviews` | 4 | Language: sentimento + entidades sobre reviews do Cosmos |
-| `/analisar-imagem` | 4 | Vision: tags + OCR + caption |
-| `/recomendar` | 5 | Chama Online Endpoint do Azure ML — top 5 produtos similares |
+| `/produtos` | 3 | Lista produtos do S3 filtrados por categoria/nome |
+| `/transcrever` | 4 | Transcribe: fala → texto de áudio do S3 |
+| `/analisar-reviews` | 4 | Comprehend: sentimento + entidades sobre reviews do MongoDB/DynamoDB |
+| `/analisar-imagem` | 4 | Rekognition: rótulos + texto (OCR) |
+| `/recomendar` | 5 | Chama o endpoint do SageMaker — top 5 produtos similares |
 
-Todas as rotas devem usar **Managed Identity** (não API keys hardcoded). Documentação inline em cada rota (docstring).
+Todas as rotas devem usar a **role da Lambda** (sem chave de acesso no código); segredo de banco só via **Secrets Manager**. Documentação inline em cada rota (docstring).
 
 ### 6. tools-spec.md
 
-Especificação das 5 tools no formato **OpenAI function calling** / **Anthropic tool use**:
+Especificação das 5 tools no formato **`toolSpec` da API Converse (Bedrock)** / **OpenAI function calling** / **Anthropic tool use**:
 
 ```json
 [
   {
     "name": "buscar_produtos_qc",
     "description": "Quando o cliente perguntar sobre catálogo, produtos disponíveis, preços, estoque ou características de produtos. Use com termos da fala do cliente.",
-    "url": "https://<func>.azurewebsites.net/api/produtos",
+    "url": "https://<id>.lambda-url.us-east-1.on.aws/produtos",
     "method": "GET",
     "input_schema": {
       "type": "object",
@@ -204,13 +203,13 @@ Inclua para **cada tool**:
 - Schema dos parâmetros
 - Pelo menos **2 exemplos** de query/conversa que disparariam essa tool
 
-### 7. finops/estimativa-qc.xlsx + analise-otimizacao.md
+### 7. finops/estimativa-qc.csv + analise-otimizacao.md
 
-Export do Pricing Calculator (do L₂ da Aula 6) + análise:
+Export do AWS Pricing Calculator (do L₂ da Aula 6) + análise:
 
 - Top 3 itens mais caros
 - 3 propostas de otimização com economia estimada
-- Comparação com Reserved Instances de 1 ano
+- Comparação com Reserved Instances / Savings Plans de 1 ano
 - TCO mensal final (otimizado vs não-otimizado)
 - Parágrafo "como apresentar para o CFO"
 
@@ -243,7 +242,7 @@ Tabela mostrando quem fez o quê em cada aula e no projeto final:
 | 3    | N3       | N1       | N2       | N2       | N1       |
 | 4    | N1       | N2       | N1       | N3       | N2       |
 | 5    | N2       | N3       | N2       | N1       | N1       |
-| Projeto Final | Arquitetura | Terraform | Function | FinOps | Reflexão |
+| Projeto Final | Arquitetura | Terraform | Lambda | FinOps | Reflexão |
 ```
 
 > O **rodízio entre níveis** ao longo das aulas é parte da avaliação (Critério 4 — Colaboração nas entregas intermediárias). Concentração de trabalho em 1-2 pessoas penaliza.

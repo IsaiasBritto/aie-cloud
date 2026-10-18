@@ -1,0 +1,15 @@
+# Custo por TURNO da Eva — Logs Insights (CloudWatch).
+# Um turno = uma pergunta do usuário; pode custar várias chamadas ao modelo
+# (uma por volta do loop de ferramentas). É o número que vai para a reunião.
+fields @timestamp, turno_id, custo_estimado_usd
+| filter evento = "eva.chamada_modelo"
+| stats sum(custo_estimado_usd) as custo_turno,
+        count(*) as iteracoes,
+        sum(tokens_entrada) as entrada,
+        sum(tokens_saida) as saida
+  by turno_id
+| stats count(*) as turnos,
+        avg(custo_turno) as custo_medio,
+        pct(custo_turno, 95) as custo_p95,
+        avg(iteracoes) as iteracoes_media,
+        sum(custo_turno) as custo_total

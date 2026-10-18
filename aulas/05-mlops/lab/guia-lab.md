@@ -1,352 +1,300 @@
 # Guia de Laboratório — Aula 5
 
 **Tema:** MLOps na Nuvem
-**Plataforma:** Microsoft Azure (Azure for Students)
-**Ambiente:** **Azure Cloud Shell** + **Azure ML Studio** (https://ml.azure.com)
+**Plataforma:** AWS — **AWS Academy Learner Lab**
+**Ambiente:** **AWS CloudShell** + console do **Amazon SageMaker AI**
 
 ---
 
 ## Visão geral do lab
 
 ```
-Atividade 1 — Provisionar Azure ML Workspace + Compute Cluster        ~30 min  (L₁)
-Atividade 2 — Treinar recomendador local + MLflow tracking + Registry ~35 min  (L₂)
-Atividade 3 — Job reproduzível no Compute Cluster (env + data asset)  ~50 min  (L₃)
-Atividade 4 — Managed Online Endpoint + consumo via REST              ~10 min  (L₄)
-Wrap-up   — Deletar endpoint (CRÍTICO) + terraform destroy            ~5 min
+Atividade 1 — Provisionar bucket versionado + Model Registry (Terraform)  ~20 min  (L₁)
+Atividade 2 — Treinar local no CloudShell + tracking (MLflow local)      ~25 min  (L₂)
+Atividade 3 — Training Job reproduzível + registro no Model Registry      ~45 min  (L₃)
+Atividade 4 — Endpoint (serverless) a partir da versão APROVADA           ~20 min  (L₄)
+Wrap-up   — Apagar endpoint e Registry (CRÍTICO) + terraform destroy      ~5 min
 ```
 
-**Pré-requisito:** apenas o `produtos.csv` da Aula 2 (já está commitado em [`../../02-storage-bancos/lab/data/produtos.csv`](../../02-storage-bancos/lab/data/produtos.csv)). **Não precisa ter a Aula 2 viva.**
+**Pré-requisito:** apenas o `produtos.csv` da Aula 2 (já está commitado em
+[`../../02-storage-bancos/lab/data/produtos.csv`](../../02-storage-bancos/lab/data/produtos.csv)).
+**Não precisa ter a Aula 2 viva.**
 
-> **⚠️ Alerta de custo:** Online Endpoint custa **~$0,15/h** (Standard_DS2_v2). **DELETAR ao final do L₄**, antes do `terraform destroy`. Esquecer = ~$3,60/dia consumindo seu crédito.
+> **⚠️ Alerta de custo:** o Training Job cobra **só os minutos** em que a máquina
+> existe (~2–4 min de ml.m5.large por job, centavos). O endpoint **serverless** cobra
+> por requisição e escala a zero. Se você usar `--tipo instancia`, a ml.m5.large custa
+> ~US$ 0,115/h **ligada 24 h** — apague no fim da Atividade 4.
+
+### De-para com a versão Azure
+
+| Azure ML | SageMaker AI | O que muda na prática |
+|---|---|---|
+| Workspace + Storage + Key Vault + App Insights + ACR | **nada a provisionar** — o serviço já está na região | o Terraform cria só bucket e Registry |
+| Compute Cluster (min 0 nós) | **Training Job** — a máquina nasce e morre com o job | não existe cluster para esquecer ligado |
+| Data Asset versionado | objeto S3 com **versionamento** | o job registra o `VersionId` numa tag |
+| `job.yml` + `conda.yml` | `create_training_job` + container de scikit-learn da AWS | o ambiente é uma imagem pronta, versionada |
+| MLflow do Workspace | **métricas do job** (regex no log → CloudWatch) + MLflow **local** | sem servidor de tracking pago |
+| Model Registry + stage *Production* | **Model Package Group** + status **Approved** | aprovação é um campo, com quem e quando |
+| Managed Online Endpoint | **Endpoint** (serverless ou instância) | serverless escala a zero |
 
 ---
 
 ## 📘 Bem-vindo à Aula 5 — leia antes de começar
 
-Esta aula tem um **objetivo bem específico**: ensinar **MLOps em cloud** — **não algoritmos de Machine Learning**.
+Esta aula ensina **MLOps em cloud** — **não algoritmos de Machine Learning**.
 
-**O que você precisa saber:**
+**O que você precisa saber:** copiar/colar comandos no CloudShell e os conceitos das
+Aulas 1–4 (Terraform, S3, containers).
 
-- Copiar/colar comandos no Cloud Shell ✅
-- Conceitos básicos do que vimos nas Aulas 1-4 (Terraform, Function, Storage) ✅
+**O que você NÃO precisa saber (e está OK!):** como funciona o `NearestNeighbors`, o
+que é similaridade de cosseno, como redes neurais são treinadas, detalhes de
+embeddings.
 
-**O que você NÃO precisa saber (e está OK!):**
+O modelo de recomendação é só o **veículo**. Você vai:
 
-- Como funciona o algoritmo `NearestNeighbors` ❌
-- O que é "cosine similarity" ❌
-- Como redes neurais são treinadas ❌
-- Detalhes de embeddings ❌
-
-**Por quê?** O modelo de recomendação aqui é apenas um **veículo didático** para ensinar o ciclo MLOps. Você vai:
-
-1. Provisionar o **Workspace de ML**
-2. **Rodar um script pronto** que treina o modelo
-3. Ver o **MLflow** registrando params, métricas, artefatos
-4. Ver o modelo **versionado no Registry**
-5. Submeter um **Job reproduzível** com environment + dataset versionados
-6. Fazer **deploy** como endpoint REST
-
-Isso é o que MLOps faz. O algoritmo em si é coberto na disciplina **AI Foundation and Learning Models**.
-
-> Se você sentir falta de explicação sobre algum termo de ML, marque a dúvida no chat — vamos esclarecer rapidamente. Mas **não bloqueie seu progresso por isso**.
+1. Provisionar o **bucket versionado** e o **Model Registry**
+2. **Rodar um script pronto** que treina o modelo — primeiro na sua máquina (CloudShell)
+3. Ver params e métricas **rastreados**
+4. Rodar **o mesmo script** como **Training Job** reproduzível
+5. **Registrar** e **aprovar** uma versão no Registry
+6. Fazer **deploy** da versão aprovada como endpoint e chamá-lo
 
 ---
 
 ## Preparação (5 min)
 
-### Confirmar ferramentas
+1. Learner Lab → **Start Lab** → bolinha **verde** → **AWS** → região **us-east-1**.
+2. Abra o **CloudShell**:
 
 ```bash
-az account show --query "{nome:name, id:id}" -o table
-terraform -version
+git clone https://github.com/IsaiasBritto/aie-cloud.git ~/aie-cloud 2>/dev/null || git -C ~/aie-cloud pull
+terraform -version || { bash ~/aie-cloud/aulas/01-fundamentos-iac/lab/install_terraform.sh && source ~/.bashrc; }
 
-# Azure ML CLI v2 (instalar/atualizar se faltar)
-az extension add -n ml 2>/dev/null || az extension update -n ml
-az ml --version
-```
-
-### Criar workspace local para o lab
-
-```bash
 mkdir -p ~/qc-aula05
-cd ~/qc-aula05
-
-# Copiar o produtos.csv da Aula 2 (já commitado no repo)
-cp ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv .
-ls -la
+cp ~/aie-cloud/aulas/02-storage-bancos/lab/data/produtos.csv ~/qc-aula05/
+cd ~/aie-cloud/aulas/05-mlops/lab
 ```
 
 ---
 
-## Atividade 1 — Provisionar Azure ML Workspace + Compute Cluster
-
-**Objetivo:** Workspace + Compute Cluster com **scale-to-zero** via Terraform. Tudo gratuito quando idle.
+## Atividade 1 — Bucket versionado + Model Registry (L₁)
 
 ### Passo 1 — Aplicar Terraform
 
 ```bash
 cd ~/aie-cloud/aulas/05-mlops/lab/terraform
-
 terraform init
 terraform apply -auto-approve
+terraform output
+cd ..
 ```
 
-Tempo: **~5 min** (Workspace é o mais lento — múltiplas dependências). Comece este `apply` cedo na aula; ele pode rodar enquanto você lê a teoria.
+Cria **três coisas** (compare com as seis da versão Azure):
 
-### Passo 2 — Exportar outputs
+| Recurso | Para quê |
+|---|---|
+| bucket `qc-aula05-<sufixo>-ml` (versionado, privado) | dados, código do treino, artefatos |
+| objeto `dados/produtos/produtos.csv` | o dataset — com `VersionId` |
+| Model Package Group `recomendador-qc-<sufixo>` | o Model Registry |
+
+### Passo 2 — Ver a versão do dado
 
 ```bash
-export SUBSCRIPTION_ID=$(terraform output -raw subscription_id)
-export RESOURCE_GROUP=$(terraform output -raw resource_group_name)
-export WORKSPACE_NAME=$(terraform output -raw workspace_name)
-export ML_STORAGE=$(terraform output -raw storage_account_name)
-
-echo "Workspace: $WORKSPACE_NAME"
-echo "Storage:   $ML_STORAGE"
-echo "RG:        $RESOURCE_GROUP"
+BUCKET=$(terraform -chdir=terraform output -raw bucket)
+aws s3api list-object-versions --bucket "$BUCKET" --prefix dados/produtos/ \
+  --query 'Versions[].{versao: VersionId, atual: IsLatest, data: LastModified}' --output table
 ```
 
-### Passo 3 — Confirmar no Studio
+Edite uma linha do CSV, rode `terraform apply` de novo e repita: **duas versões**. É o
+"Data Asset versionado" — o job da Atividade 3 grava qual versão usou.
 
-1. Abrir https://ml.azure.com
-2. Selecionar o Workspace `mlw-qc-xxxxxx`
-3. Menu lateral → **Compute** → confirmar `cpu-cluster` listado com **0 nodes** (scale-to-zero ativo)
-4. Menu lateral → **Data** → confirmar datastore `workspaceblobstore` criado automaticamente
+### Passo 3 — Confirmar no console
 
-**✅ Checkpoint L₁:** Workspace + Compute Cluster com 0 nodes no Studio?
+**SageMaker AI** → **Models** → **Model registry** (ou **Governance → Model registry**,
+conforme a versão do console) → o grupo `recomendador-qc-<sufixo>`, ainda vazio.
 
 ---
 
-## Atividade 2 — Treinar recomendador local + MLflow tracking + Registry
+## Atividade 2 — Treino local + tracking (L₂)
 
-**Objetivo:** Treinar o recomendador da QC no Cloud Shell com **MLflow apontando para o Workspace remoto**. Ver params, metrics, artifacts aparecerem no Studio em tempo real e modelo versionado no Registry.
-
-### Passo 1 — Instalar dependências
+### Passo 1 — Dependências (leves: sem torch)
 
 ```bash
-pip install --user "mlflow<2.17" azureml-mlflow azure-ai-ml azure-identity scikit-learn pandas
+pip3 install --user --quiet "scikit-learn" pandas joblib "mlflow-skinny<3"
 ```
 
-> **Por que não `sentence-transformers` aqui?** O Cloud Shell tem 5 GB de disco — `sentence-transformers` puxa `torch` (~1.5 GB) e esgotaria o espaço. Esta atividade usa **TF-IDF** (já incluso no scikit-learn, zero install extra) para demonstrar o fluxo MLflow → Registry com pacotes leves. A Atividade 3 usa embeddings semânticos no Compute Cluster, onde não há essa restrição. Compare os valores de `precision_at_k_proxy` entre as duas abordagens — essa diferença é a motivação para o cluster.
+> O `$HOME` do CloudShell tem 1 GB. `mlflow-skinny` é o MLflow sem o servidor web:
+> dá para rastrear e consultar runs, sem a interface gráfica.
 
-### Passo 2 — Configurar variáveis e rodar
+### Passo 2 — Rodar duas vezes, com parâmetros diferentes
 
 ```bash
-# Variáveis para o script
-export DATA_PATH=~/qc-aula05/produtos.csv
-
-cd ~/aie-cloud/aulas/05-mlops/lab/notebooks
-python3 treinar_recomendador.py
+python3 codigo/train.py --n_neighbors 5
+python3 codigo/train.py --n_neighbors 3
 ```
 
-Tempo: ~1 min (após o cache do modelo).
+Cada execução imprime `precision_at_k_proxy=...` e cria um **run** no MLflow local
+(`./mlruns`).
 
-### Passo 3 — Validar no Studio
-
-1. Abrir Azure ML Studio
-2. **Jobs** → experimento `recomendacao-qc` → seu run
-3. Aba **Metrics:** `precision_at_k_proxy`, `num_produtos`, `embedding_dim`
-4. Aba **Outputs + logs:** `nn_model.pkl` em `model/`
-5. Menu lateral → **Models** → `recomendador-qc:1`
-
-### Passo 4 — Marcar v1 como Production
+### Passo 3 — Comparar os runs
 
 ```bash
-az ml model update --name recomendador-qc --version 1 \
-  --set tags.stage=Production \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+python3 - <<'EOF'
+import mlflow
+runs = mlflow.search_runs(experiment_names=["recomendacao-qc"])
+print(runs[["run_id", "params.n_neighbors", "params.vetorizador",
+            "metrics.precision_at_k_proxy"]].to_string(index=False))
+EOF
 ```
 
-> **Nota:** Azure ML CLI v2 não tem mais o conceito de "stage" explícito (foi descontinuado em favor de tags + Endpoints). Usamos `tags.stage` por convenção.
+**Pergunta para o grupo:** qual run você mandaria para produção, e por quê? Guarde a
+resposta — o Registry da Atividade 3 é onde essa decisão fica **registrada**.
 
-**✅ Checkpoint L₂:** Modelo no Registry com tag `stage=Production`?
+> 💡 Repare que o `train.py` lê `SM_CHANNEL_TREINO` e `SM_MODEL_DIR` com padrões
+> locais. É isso que permite o **mesmo arquivo** rodar aqui e no Training Job.
 
 ---
 
-## Atividade 3 — Pipeline reproduzível no Azure ML
+## Atividade 3 — Training Job reproduzível + Registry (L₃)
 
-**Objetivo:** Transformar o script local num **job submetido ao Compute Cluster**, com **environment** versionado e **data asset** versionado.
-
-### Parte A — Upload do dataset + Data Asset (10 min)
-
-O job vai puxar o `produtos.csv` do datastore default do Workspace via Data Asset `produtos-qc:1`. Primeiro faça upload, depois crie o Data Asset.
+### Parte A — Submeter o job (15 min)
 
 ```bash
-# Pegar o nome do container do workspaceblobstore
-WS_CONTAINER=$(az ml datastore show \
-  --name workspaceblobstore \
-  --workspace-name "$WORKSPACE_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --query container_name -o tsv)
-
-# Upload do CSV
-az storage blob upload \
-  --account-name "$ML_STORAGE" \
-  --container-name "$WS_CONTAINER" \
-  --name aula05/produtos.csv \
-  --file ~/qc-aula05/produtos.csv \
-  --auth-mode login --overwrite
-
-# Criar o Data Asset versionado
-cd ~/aie-cloud/aulas/05-mlops/lab/job
-az ml data create --file data-asset.yml \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+python3 scripts/submeter_job.py
 ```
 
-Confirmar no Studio → **Data** → `produtos-qc` v1.
+O script mostra cada mudança de estado:
 
-### Parte B — Submeter o job (15 min)
+```
+  14:02:11  InProgress  Starting
+  14:03:26  InProgress  Downloading
+  14:03:41  InProgress  Training
+  14:04:12  Completed   Completed
+Métricas finais: { "precision_at_k_proxy": 0.54 }
+Faturado:  71 s de ml.m5.large
+```
+
+O que aconteceu, peça por peça:
+
+| Peça do job | Equivalente Azure | Onde ver |
+|---|---|---|
+| `sourcedir.tar.gz` no S3 | `code: .` do `job.yml` | S3 → `codigo/<job>/` |
+| imagem `sagemaker-scikit-learn:1.2-1-cpu-py3` | `environment` + `conda.yml` | job → *Algorithm* |
+| canal `treino` → `dados/produtos/` | `inputs.produtos` (Data Asset) | job → *Input data configuration* |
+| `MetricDefinitions` (regex) | `mlflow.log_metric` | job → *Metrics* e CloudWatch |
+| tag `dados_versao` | versão do Data Asset | job → *Tags* |
+| `model.tar.gz` | `outputs/` | S3 → `modelos/<job>/output/` |
+
+### Parte B — Ver no console e no log (5 min)
+
+**SageMaker AI** → **Training** → **Training jobs** → o seu job:
+*Hyperparameters*, *Metrics*, *Monitor* (link para os logs no CloudWatch).
 
 ```bash
-cd ~/aie-cloud/aulas/05-mlops/lab/job
-
-az ml job create --file job.yml \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+aws logs tail /aws/sagemaker/TrainingJobs --log-stream-name-prefix rec-qc --since 30m
 ```
 
-Tempo (primeira execução):
-
-- Cluster acorda do scale-to-zero: **~2 min**
-- Build do environment: **~3-5 min** (cacheado nas próximas)
-- Execução: **~30 s**
-- **Total: ~5-8 min** primeira vez
-
-Acompanhe no Studio: **Jobs** → seu job → logs em tempo real.
-
-### Parte C — Validar (5 min)
-
-1. Job aparece em **Jobs** com status `Completed`
-2. Aba **Outputs + logs**: `outputs/nn_model.pkl`
-3. Aba **Metrics**: `precision_at_k_proxy`
-4. **Models**: nova versão (`recomendador-qc:2` se Atividade 2 foi feita; `:1` caso contrário)
-
-### Parte D — Re-submeter com outro parâmetro (10 min)
-
-Edite `job.yml`: mude `n_neighbors: 5` para `n_neighbors: 10`.
+### Parte C — Registrar e aprovar (10 min)
 
 ```bash
-az ml job create --file job.yml \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+python3 scripts/registrar_modelo.py --job <nome-do-job>     # o script anterior imprimiu
+python3 scripts/registrar_modelo.py --listar
+python3 scripts/registrar_modelo.py --aprovar 1
 ```
 
-No Studio, compare os 2 runs lado a lado: qual `precision_at_k_proxy` ficou maior? Modelo v3 deve aparecer no Registry.
+A versão nasce **PendingManualApproval**. Aprovar é um ato explícito, que fica
+registrado no Registry — é o "stage Production" da versão Azure, com trilha de
+auditoria.
 
-**✅ Checkpoint L₃:** 2 runs comparáveis no Studio? Modelo versionado (v2 e v3 se Atividade 2 foi feita; v1 e v2 caso contrário)?
+Pela CLI pura, o mesmo:
+
+```bash
+GRUPO=$(terraform -chdir=terraform output -raw model_package_group)
+aws sagemaker list-model-packages --model-package-group-name "$GRUPO" \
+  --query 'ModelPackageSummaryList[].{v: ModelPackageVersion, status: ModelApprovalStatus}' --output table
+```
+
+### Parte D — Re-submeter com outro parâmetro (15 min)
+
+```bash
+python3 scripts/submeter_job.py --n_neighbors 3
+python3 scripts/registrar_modelo.py --job <novo-job>
+python3 scripts/registrar_modelo.py --listar
+```
+
+Agora há **v1 (Approved)** e **v2 (Pending)**. Compare as descrições: cada versão
+carrega o job, os hiperparâmetros e a métrica que a geraram. É a **linhagem**.
+
+> 🔴 **Opcional (perfil ML):** `python3 scripts/submeter_job.py --vetorizador embeddings`
+> usa *sentence-transformers*. O job instala torch (CPU) antes de treinar — leva uns
+> 5 minutos a mais. Compare o `precision_at_k_proxy` com o TF-IDF.
 
 ---
 
-## Atividade 4 — Managed Online Endpoint
+## Atividade 4 — Endpoint da versão aprovada (L₄)
 
-**Objetivo:** Deploy do modelo como endpoint REST. **CRÍTICO:** deletar imediatamente após testar — endpoint custa ~$0,15/h ativo.
-
-### Passo 1 — Identificar a versão do modelo e definir nome do endpoint
+### Passo 1 — Implantar
 
 ```bash
-cd ~/aie-cloud/aulas/05-mlops/lab/endpoint
-
-# Ver quais versões do modelo estão no Registry
-az ml model list --name recomendador-qc \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" \
-  --query "[].version" -o table
-
-# Pegar a versão mais recente (registrada pela Atividade 3)
-MODEL_VERSION=$(az ml model list --name recomendador-qc \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" \
-  --query "[-1].version" -o tsv)
-echo "Versão do modelo: $MODEL_VERSION"
-
-# Gerar sufixo único para o nome do endpoint (global no Azure)
-SUFIXO="$(whoami | tr -cd 'a-z0-9')-$RANDOM"
-export ENDPOINT_NAME="rec-qc-$SUFIXO"
-echo "Endpoint: $ENDPOINT_NAME"
-
-# Substituir nos YAMLs (sed in-place)
-sed -i "s/rec-qc-<sufixo-unico>/$ENDPOINT_NAME/g" endpoint.yml deployment.yml
-sed -i "s/recomendador-qc:1/recomendador-qc:$MODEL_VERSION/g" deployment.yml
+python3 scripts/implantar_endpoint.py               # serverless (padrão)
+# se a sua conta recusar serverless:
+# python3 scripts/implantar_endpoint.py --tipo instancia
 ```
 
-> **Por que usar a versão mais recente?** O `deployment.yml` template aponta para `:1`, mas o endpoint precisa que o modelo tenha sido registrado com `pip_requirements` corretos (inclui `azureml-ai-monitoring`). A versão registrada pela **Atividade 3** (`train.py`) já tem isso; a v1 da Atividade 2 não.
+O script pega a versão **Approved mais recente** do Registry — nunca "a última
+treinada". Três objetos nascem: **Model** → **EndpointConfig** → **Endpoint**.
 
-### Passo 2 — Criar endpoint + deployment
+### Passo 2 — Testar
 
 ```bash
-# 1. Envelope do endpoint
-az ml online-endpoint create --file endpoint.yml \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
-
-# 2. Deployment (instância de compute) — ~5 min
-az ml online-deployment create --file deployment.yml \
-  --endpoint-name "$ENDPOINT_NAME" \
-  --all-traffic \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
-
-# 3. Confirmar que o tráfego foi atribuído (deve mostrar blue=100)
-az ml online-endpoint show --name "$ENDPOINT_NAME" \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" \
-  --query "traffic" -o json
-
-# Se mostrar {} ou blue=0, atribuir manualmente:
-# az ml online-endpoint update --name "$ENDPOINT_NAME" --traffic "blue=100" \
-#   -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+ENDPOINT=rec-qc-$(terraform -chdir=terraform output -raw sufixo)
+aws sagemaker-runtime invoke-endpoint --endpoint-name "$ENDPOINT" \
+  --content-type application/json --body fileb://endpoint/request.json resposta.json
+python3 -m json.tool resposta.json
 ```
 
-> **⚠️ A partir daqui o endpoint custa ~$0,15/h.** Siga direto para o teste e o destroy.
+A primeira chamada no serverless pode levar alguns segundos (**cold start**); a
+segunda é rápida. É o trade-off do escala-a-zero, medido por você.
 
-### Passo 3 — Testar
+### Passo 3 — Trocar a versão sem trocar o endereço
 
 ```bash
-ENDPOINT_URL=$(az ml online-endpoint show --name "$ENDPOINT_NAME" \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" --query scoring_uri -o tsv)
-
-ENDPOINT_KEY=$(az ml online-endpoint get-credentials --name "$ENDPOINT_NAME" \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP" --query primaryKey -o tsv)
-
-# Chamar
-curl -X POST "$ENDPOINT_URL" \
-  -H "Authorization: Bearer $ENDPOINT_KEY" \
-  -H "Content-Type: application/json" \
-  -d @request.json
+python3 scripts/registrar_modelo.py --aprovar 2
+python3 scripts/implantar_endpoint.py
 ```
 
-Esperado: JSON com produtos similares ao produto 5.
-
-**✅ Checkpoint L₄:** Endpoint responde com recomendações?
+O endpoint é **atualizado** (`update_endpoint`) para a v2 — mesma URL, modelo novo.
+Rollback é aprovar de volta a v1 (e rejeitar a v2) e rodar o script de novo.
 
 ---
 
-## Wrap-up — Destroy (5 min)
+## Wrap-up — Apagar (5 min)
 
-### Passo 1 — DELETAR ENDPOINT (PRIMEIRO!)
+### Passo 1 — Endpoint e Registry (PRIMEIRO!)
 
 ```bash
-az ml online-endpoint delete --name "$ENDPOINT_NAME" --yes \
-  -w "$WORKSPACE_NAME" -g "$RESOURCE_GROUP"
+python3 scripts/limpar.py --registro
 ```
 
-Aguarde ~2 min. **Não pule este passo — endpoint custa $/hora.**
+O Terraform **não sabe** que endpoint, models e versões do Registry existem — os
+scripts os criaram. Sem este passo, o `destroy` falha no Model Package Group (grupo
+com versões não é apagado) e, pior, um endpoint de instância continuaria cobrando.
 
 ### Passo 2 — Terraform destroy
 
 ```bash
-cd ~/aie-cloud/aulas/05-mlops/lab/terraform
-terraform destroy -auto-approve
+terraform -chdir=terraform destroy -auto-approve
+rm -rf mlruns modelo-local resposta.json
 ```
 
-Tempo: ~5 min (Workspace é o mais lento para destruir).
-
-### Passo 3 — Verificar custo
-
-Portal → **Cost Management** → análise de hoje. Esperado: **< $1** (compute cluster acorda só durante jobs; endpoint foi vivo por <30 min se você seguiu o cronograma).
-
-### Passo 4 — Reverter alterações no clone
-
-Você editou `endpoint.yml` e `deployment.yml` com o nome único do seu endpoint. Para deixar o clone limpo para o próximo `git pull`:
+### Passo 3 — Conferir que não sobrou nada cobrando
 
 ```bash
-cd ~/aie-cloud
-git checkout aulas/05-mlops/lab/endpoint/endpoint.yml aulas/05-mlops/lab/endpoint/deployment.yml aulas/05-mlops/lab/job/job.yml
+aws sagemaker list-endpoints --query 'Endpoints[].EndpointName'
+aws sagemaker list-training-jobs --status-equals InProgress --query 'TrainingJobSummaries[].TrainingJobName'
 ```
+
+As duas listas devem vir vazias. (Training jobs concluídos ficam no histórico, sem custo.)
 
 ---
 
@@ -354,15 +302,16 @@ git checkout aulas/05-mlops/lab/endpoint/endpoint.yml aulas/05-mlops/lab/endpoin
 
 **Saída desta aula:**
 
-- Workspace Azure ML provisionado via IaC
-- Compute Cluster com scale-to-zero
-- Modelo `recomendador-qc` versionado no Registry (v1, v2, v3)
-- Pipeline reproduzível (Job YAML + Environment + Data Asset)
-- Endpoint REST testado (e deletado)
+- Bucket versionado + Model Registry via IaC
+- Treino reproduzível (o mesmo `train.py` local e no Training Job)
+- `recomendador-qc` com v1 e v2 no Registry, uma aprovada
+- Endpoint testado (e apagado)
 
-**Para os agentes da QC:**
-
-Uma 5ª tool da Function da Aula 3 — `/recomendar` — chamaria o Online Endpoint via REST e retornaria top-N produtos similares. Em produção real, manter o endpoint ligado custa $216/mês por instância — decisão de produto a justificar na entrega final. Esta integração é o **Exercício N2.2** desta aula.
+**Para os agentes da QC:** uma 5ª tool da Lambda da Aula 3 — `/recomendar` — chamaria
+`sagemaker-runtime:InvokeEndpoint` com a role da função (sem chave) e devolveria os
+top-N produtos. Com endpoint serverless, o custo parado é zero; com instância
+dedicada, ~US$ 84/mês. Decisão de produto a justificar na entrega final — é o
+**Exercício N2.2**.
 
 ---
 
@@ -370,22 +319,23 @@ Uma 5ª tool da Function da Aula 3 — `/recomendar` — chamaria o Online Endpo
 
 | Problema | Causa | Solução |
 |----------|-------|---------|
-| `terraform apply` falha no Workspace | Quota de Storage Account na região | Mudar `location` para `eastus2` (`-var=location=eastus2`) |
-| Job em "Queued" eternamente | Compute Cluster falhou ao escalar | Verificar quota de vCPUs na subscription |
-| Job falhou com "Image not found" | `conda.yml` inválido | Conferir indentação do YAML |
-| `az ml model update --set tags` falha | CLI v2 antiga | `az extension update -n ml` |
-| Endpoint deployment falhou | Modelo precisa de scoring script | Modelo registrado via `mlflow.pyfunc.log_model` já vem com scoring built-in — se falhar, conferir versão do MLflow |
-| Endpoint retorna 500 | Faltam libs no pip_requirements | `pip_requirements` do `mlflow.pyfunc.log_model` deve incluir todos os pacotes que `predict()` usa em runtime (sklearn, pandas, numpy, azureml-ai-monitoring) |
-| Custo > $3 no fim do dia | Endpoint esquecido | Sempre `az ml online-endpoint delete` antes do `terraform destroy` |
+| `AccessDenied ... CreateTrainingJob` | sessão do Learner Lab encerrada | religue o Lab e rode de novo |
+| `ResourceLimitExceeded` | tipo de instância fora da cota do Learner Lab | `--instancia ml.m5.large` (treino) ou `--tipo serverless` (endpoint) |
+| job `Failed`: `No such file ... produtos.csv` | canal apontando para prefixo vazio | `terraform apply` subiu o CSV? `aws s3 ls s3://$BUCKET/dados/produtos/` |
+| job `Failed`: `unrecognized arguments` | hiperparâmetro com nome diferente do `argparse` | o `train.py` usa `--n_neighbors` (sublinhado), como o SageMaker passa |
+| endpoint `Failed`: `ModelError` / 500 | erro no `inference.py` | CloudWatch → `/aws/sagemaker/Endpoints/rec-qc-<sufixo>` |
+| `ValidationException` no serverless | serverless não liberado na conta | `--tipo instancia` |
+| `terraform destroy` falha no Model Package Group | versões ainda no Registry | `python3 scripts/limpar.py --registro` |
+| `pip install` sem espaço no CloudShell | `$HOME` de 1 GB | `pip3 cache purge`; use só `mlflow-skinny` |
 
 ---
 
 ## Referências
 
-- [Azure Machine Learning — Get Started](https://learn.microsoft.com/azure/machine-learning/quickstart-create-resources)
-- [MLflow + Azure ML](https://learn.microsoft.com/azure/machine-learning/how-to-use-mlflow-cli-runs)
-- [Model Registry — Azure ML](https://learn.microsoft.com/azure/machine-learning/how-to-manage-models)
-- [Online Endpoints](https://learn.microsoft.com/azure/machine-learning/how-to-deploy-online-endpoints)
-- [Compute Cluster](https://learn.microsoft.com/azure/machine-learning/how-to-create-attach-compute-cluster)
-- [Sentence Transformers](https://www.sbert.net/)
-- [Azure ML Pricing](https://azure.microsoft.com/pricing/details/machine-learning/)
+- [Amazon SageMaker AI — Training jobs](https://docs.aws.amazon.com/sagemaker/latest/dg/how-it-works-training.html)
+- [Use scikit-learn with SageMaker (containers e script mode)](https://docs.aws.amazon.com/sagemaker/latest/dg/sklearn.html)
+- [Define training metrics (MetricDefinitions)](https://docs.aws.amazon.com/sagemaker/latest/dg/training-metrics.html)
+- [Model Registry — Model Package Groups](https://docs.aws.amazon.com/sagemaker/latest/dg/model-registry.html)
+- [Serverless Inference](https://docs.aws.amazon.com/sagemaker/latest/dg/serverless-endpoints.html)
+- [S3 Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html)
+- [MLflow Tracking](https://mlflow.org/docs/latest/tracking.html)

@@ -82,7 +82,7 @@ Use **exatamente este template** dentro do ZIP de cada entrega (substitua os pla
 - Tamanho ideal: < 5 MB
 - **NÃO incluir:** `terraform.tfstate*`, `.env`, `*.pem`, `__pycache__/`, `.venv/`
 
-Comando recomendado no Cloud Shell:
+Comando recomendado no CloudShell:
 
 ```bash
 cd ~/qc-grupo-NN

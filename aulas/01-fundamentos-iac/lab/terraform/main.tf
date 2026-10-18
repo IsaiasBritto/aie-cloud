@@ -1,173 +1,143 @@
 terraform {
+  required_version = ">= 1.5"
   required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
 }
 
-provider "azurerm" {
-  features {}
+# No AWS Academy Learner Lab as credenciais já vêm do CloudShell (LabRole).
+# default_tags aplica as tags em TODOS os recursos — FinOps desde a Aula 1.
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = local.tags
+  }
 }
 
-# Tags aplicadas a todos os recursos (paridade com a VM criada no portal)
 locals {
   tags = {
     aula         = "1"
     disciplina   = "cloud-cognitive"
+    projeto      = "quantum-commerce"
     provisionado = "terraform"
+    stack        = var.stack_name
   }
-}
-
-# Resource Group provisionado via Terraform (separado do rg-lab-aula01 da Atividade 4,
-# para podermos comparar a MESMA VM criada nas duas formas: portal vs IaC)
-resource "azurerm_resource_group" "rg" {
-  name     = var.resource_group_name
-  location = var.location
-  tags     = local.tags
 }
 
 # ---------------------------------------------------------------------------
-# Rede — equivalente Terraform do template ARM exportado em ../../template/
-# VNet 10.0.0.0/16 com subnet "default" 10.0.0.0/24
+# Rede — usamos a VPC padrão da conta (o Learner Lab já traz uma por região).
+# Na Azure era preciso criar VNet + subnet; aqui ela já existe.
 # ---------------------------------------------------------------------------
-resource "azurerm_virtual_network" "vnet" {
-  name                = "vm-lab-aula01-vnet"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  address_space       = ["10.0.0.0/16"]
-  tags                = local.tags
+data "aws_vpc" "padrao" {
+  default = true
 }
 
-resource "azurerm_subnet" "default" {
-  name                 = "default"
-  resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.0.0/24"]
-}
+# Imagem: Ubuntu Server 24.04 LTS (x86_64), publicada pela Canonical
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
 
-# NSG com as 3 regras inbound do template (SSH 22, HTTPS 443, HTTP 80)
-resource "azurerm_network_security_group" "nsg" {
-  name                = "vm-lab-aula01-nsg"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  tags                = local.tags
-
-  security_rule {
-    name                       = "SSH"
-    priority                   = 300
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
   }
 
-  security_rule {
-    name                       = "HTTPS"
-    priority                   = 320
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "443"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "HTTP"
-    priority                   = 340
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "80"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
   }
 }
 
-# IP público estático (SKU Standard, como no template)
-resource "azurerm_public_ip" "pip" {
-  name                = "vm-lab-aula01-ip"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = local.tags
-}
+# Security group com as 3 portas de entrada do lab via console (SSH, HTTP, HTTPS)
+resource "aws_security_group" "web" {
+  name        = "${var.vm_name}-sg" # a AWS proíbe nome começando com "sg-" (prefixo reservado aos IDs)
+  description = "SSH, HTTP e HTTPS para a VM do lab da Aula 1"
+  vpc_id      = data.aws_vpc.padrao.id
 
-# NIC com Accelerated Networking (suportado pelo D2s_v3) e o IP público anexado
-resource "azurerm_network_interface" "nic" {
-  name                          = "vm-lab-aula01-nic"
-  resource_group_name           = azurerm_resource_group.rg.name
-  location                      = azurerm_resource_group.rg.location
-  enable_accelerated_networking = true
-  tags                          = local.tags
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.ssh_cidr]
+  }
 
-  ip_configuration {
-    name                          = "ipconfig1"
-    subnet_id                     = azurerm_subnet.default.id
-    private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pip.id
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Saida liberada"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
-# No template ARM o NSG é associado à NIC (não à subnet) — mantemos a mesma topologia
-resource "azurerm_network_interface_security_group_association" "nic_nsg" {
-  network_interface_id      = azurerm_network_interface.nic.id
-  network_security_group_id = azurerm_network_security_group.nsg.id
+# Key pair a partir da chave pública do CloudShell (~/.ssh/id_rsa.pub)
+resource "aws_key_pair" "lab" {
+  key_name   = "key-${var.vm_name}"
+  public_key = file(pathexpand(var.ssh_public_key_path))
 }
 
 # ---------------------------------------------------------------------------
-# Máquina virtual — Ubuntu 26.04 LTS (ARM64), Standard_D2ps_v6 (série Arm Cobalt)
-# Zona de disponibilidade 1, Trusted Launch (Secure Boot + vTPM), Spot instance
-# Autenticação somente por chave SSH (disablePasswordAuthentication = true)
+# A máquina virtual — mesma configuração da Atividade 4 (console)
 # ---------------------------------------------------------------------------
-resource "azurerm_linux_virtual_machine" "vm" {
-  name                            = "vm-lab-aula01"
-  computer_name                   = "vm-lab-aula01"
-  resource_group_name             = azurerm_resource_group.rg.name
-  location                        = azurerm_resource_group.rg.location
-  size                            = var.vm_size
-  zone                            = var.zone
-  admin_username                  = var.admin_username
-  disable_password_authentication = true
-  network_interface_ids           = [azurerm_network_interface.nic.id]
-  tags                            = local.tags
+resource "aws_instance" "vm" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  key_name                    = aws_key_pair.lab.key_name
+  vpc_security_group_ids      = [aws_security_group.web.id]
+  associate_public_ip_address = true
 
-  # Trusted Launch (igual ao securityProfile do template)
-  secure_boot_enabled = true
-  vtpm_enabled        = true
-
-  # Spot instance (igual a priority/evictionPolicy/billingProfile do template)
-  priority        = "Spot"
-  eviction_policy = "Deallocate"
-  max_bid_price   = -1
-
-  admin_ssh_key {
-    username   = var.admin_username
-    public_key = file(pathexpand(var.ssh_public_key_path))
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = 8
+    encrypted   = true
   }
 
-  os_disk {
-    caching              = "ReadWrite"
-    storage_account_type = "Premium_LRS"
-    disk_size_gb         = 30
+  # IMDSv2 obrigatório — boa prática de segurança
+  metadata_options {
+    http_tokens = "required"
   }
 
-  disk_controller_type = "SCSI"
-
-  source_image_reference {
-    publisher = "canonical"
-    offer     = "ubuntu-26_04-lts"
-    sku       = "pro-server-arm64"
-    version   = "latest"
+  tags = {
+    Name = var.vm_name
   }
+}
 
-  boot_diagnostics {} # storage gerenciado pela plataforma (bootDiagnostics enabled)
+# ---------------------------------------------------------------------------
+# "Resource Group" da AWS: não é uma pasta, é uma CONSULTA por tag.
+# Apagar o grupo não apaga nada — quem apaga é o terraform destroy.
+# ---------------------------------------------------------------------------
+resource "aws_resourcegroups_group" "lab" {
+  name        = "rg-iac-aula01"
+  description = "Recursos da Aula 1 provisionados via Terraform - consulta por tag" # só letras, números, espaço, _ . -
+
+  resource_query {
+    query = jsonencode({
+      ResourceTypeFilters = ["AWS::AllSupported"]
+      TagFilters = [{
+        Key    = "stack"
+        Values = [var.stack_name]
+      }]
+    })
+  }
 }

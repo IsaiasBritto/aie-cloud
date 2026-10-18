@@ -1,13 +1,17 @@
-variable "location" {
-  # Padrão da disciplina: eastus2. Brazil South costuma ser bloqueado pela
-  # política "best available regions" das contas Azure for Students.
-  description = "Região do Azure onde os recursos serão provisionados"
+variable "region" {
+  description = "Região da AWS (o Learner Lab libera us-east-1 e us-west-2)"
   type        = string
-  default     = "eastus2"
+  default     = "us-east-1"
 }
 
-variable "aci_enabled" {
-  description = "Quando true, provisiona o Azure Container Instances. Deixe false no primeiro apply (a imagem precisa ser pushed ao ACR antes do ACI subir)."
+variable "ecs_enabled" {
+  description = "Quando true, cria o serviço ECS Fargate. Deixe false no primeiro apply: a imagem precisa estar no ECR antes"
   type        = bool
   default     = false
+}
+
+variable "image_tag" {
+  description = "Tag da imagem no ECR usada pela tarefa Fargate"
+  type        = string
+  default     = "v1"
 }
